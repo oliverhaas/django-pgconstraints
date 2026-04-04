@@ -1,0 +1,47 @@
+site_name: django-pgconstraints
+site_description: Declarative PostgreSQL constraint triggers for Django
+site_url: https://oliverhaas.github.io/django-pgconstraints/
+repo_url: https://github.com/oliverhaas/django-pgconstraints
+repo_name: oliverhaas/django-pgconstraints
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.sections
+    - content.code.copy
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.details
+  - toc:
+      permalink: true
+
+extra:
+  version:
+    provider: mike
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+  - Reference:
+      - Changelog: reference/changelog.md
