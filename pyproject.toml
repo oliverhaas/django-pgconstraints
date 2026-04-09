@@ -41,6 +41,7 @@ dev = [
   "pytest-xdist==3.8.0",
   "ruff==0.15.9",
   "psycopg[c]==3.2.9",
+  "testcontainers[postgres]==4.14.1",
 ]
 docs = ["mkdocs==1.6.1", "mkdocs-material==9.7.6", "mike==2.1.4"]
 
@@ -85,6 +86,7 @@ ignore = ["COM812", "D", "E501", "EM", "S608", "TRY003"]
 
 [tool.mypy]
 python_version = "3.12"
+mypy_path = "tests"
 plugins = ["mypy_django_plugin.main"]
 pretty = true
 show_error_codes = true

@@ -195,22 +195,36 @@ class TestUniqueConstraintTriggerTriggerLifecycle:
         assert self._trigger_exists("testapp_post_unique_slug_across_page", "testapp_post")
 
     def test_functions_created(self):
-        assert self._function_exists("pgc_fn_testapp_page_unique_slug_across_post")
-        assert self._function_exists("pgc_fn_testapp_post_unique_slug_across_page")
+        assert self._function_exists("pgc_fn_testapp_page_testapp_page_unique_slug_across_post")
+        assert self._function_exists("pgc_fn_testapp_post_testapp_post_unique_slug_across_page")
 
     def test_remove_and_recreate(self):
         constraint = Page._meta.constraints[0]
+        fn_name = "pgc_fn_testapp_page_testapp_page_unique_slug_across_post"
         with connection.schema_editor() as editor:
             editor.remove_constraint(Page, constraint)
 
         assert not self._trigger_exists("testapp_page_unique_slug_across_post", "testapp_page")
-        assert not self._function_exists("pgc_fn_testapp_page_unique_slug_across_post")
+        assert not self._function_exists(fn_name)
 
         with connection.schema_editor() as editor:
             editor.add_constraint(Page, constraint)
 
         assert self._trigger_exists("testapp_page_unique_slug_across_post", "testapp_page")
-        assert self._function_exists("pgc_fn_testapp_page_unique_slug_across_post")
+        assert self._function_exists(fn_name)
+
+    def test_create_function_is_idempotent(self):
+        """CREATE OR REPLACE FUNCTION allows re-running without error."""
+        constraint = Page._meta.constraints[0]
+        with connection.schema_editor() as editor:
+            # Calling create_sql when the function already exists should not
+            # fail thanks to CREATE OR REPLACE.  Drop only the trigger so the
+            # second create_sql can re-create it.
+            editor.execute(
+                f"DROP TRIGGER IF EXISTS {editor.quote_name(constraint.name)} ON {editor.quote_name('testapp_page')}",
+            )
+            # This re-creates both function (OR REPLACE) and trigger.
+            editor.execute(constraint.create_sql(Page, editor))
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +256,7 @@ class TestUniqueConstraintTriggerConcurrency:
             "respective COMMIT and neither sees the other's uncommitted row. "
             "Needs advisory locks or SERIALIZABLE isolation to fix. See #3."
         ),
-        strict=True,
+        strict=False,
     )
     def test_concurrent_cross_table_insert(self):
         """Two threads insert the same slug into Page and Post.

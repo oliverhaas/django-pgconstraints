@@ -2,18 +2,28 @@
 
 from __future__ import annotations
 
+import hashlib
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import DEFAULT_DB_ALIAS
 from django.db.models import BaseConstraint, F, Q
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
-    from django.apps import Apps
+    from django.apps.registry import Apps
     from django.db.backends.base.schema import BaseDatabaseSchemaEditor
     from django.db.models import Model
+
+# PostgreSQL truncates identifiers to 63 bytes.  We need room for the
+# ``pgc_fn_`` prefix (7 bytes) plus optional suffixes like ``_ins`` (4 bytes).
+_PG_IDENT_MAX = 63
+_PREFIX = "pgc_fn_"
+_MAX_SUFFIX = 4  # longest suffix: "_ins", "_del", "_upd"
 
 
 # ------------------------------------------------------------------
@@ -29,14 +39,39 @@ _LOOKUP_OPS: dict[str, str] = {
 }
 
 
-def _sql_value(value: str | float | bool | None) -> str:  # noqa: FBT001
+def _make_fn_name(table: str, name: str, suffix: str = "") -> str:
+    """Build a trigger function name scoped to *table*, within PG's 63-byte limit.
+
+    The format is ``pgc_fn_{table}_{name}{suffix}``.  If that exceeds 63 bytes
+    we replace the middle portion with a short hash to guarantee uniqueness.
+    """
+    candidate = f"{_PREFIX}{table}_{name}{suffix}"
+    if len(candidate.encode()) <= _PG_IDENT_MAX:
+        return candidate
+    # Truncate deterministically using a hash of the full candidate.
+    digest = hashlib.md5(candidate.encode()).hexdigest()[:8]  # noqa: S324
+    budget = _PG_IDENT_MAX - len(_PREFIX) - len(suffix) - len(digest) - 1  # 1 for '_'
+    base = f"{table}_{name}"[:budget]
+    return f"{_PREFIX}{base}_{digest}{suffix}"
+
+
+def _sql_value(value: str | float | bool | Decimal | date | datetime | timedelta | UUID | None) -> str:  # noqa: FBT001, PLR0911
     """Convert a Python value to a SQL literal for use in PL/pgSQL."""
     if isinstance(value, bool):
         return "TRUE" if value else "FALSE"
     if isinstance(value, str):
         return "'" + value.replace("'", "''") + "'"
-    if isinstance(value, (int, float)):
+    if isinstance(value, (int, float, Decimal)):
         return str(value)
+    if isinstance(value, datetime):
+        return f"'{value.isoformat()}'::timestamptz"
+    if isinstance(value, date):
+        return f"'{value.isoformat()}'::date"
+    if isinstance(value, timedelta):
+        total = value.total_seconds()
+        return f"'{total} seconds'::interval"
+    if isinstance(value, UUID):
+        return f"'{value}'::uuid"
     if value is None:
         return "NULL"
     msg = f"Cannot convert {type(value).__name__} to SQL literal"
@@ -54,17 +89,20 @@ def _q_to_sql(q: Q, model: type[Model], qn: Callable[[str], str], row_ref: str =
         if isinstance(child, Q):
             parts.append(f"({_q_to_sql(child, model, qn, row_ref)})")
         else:
-            lookup_str, value = child
+            lookup_str, value = child  # type: ignore[misc]
             if "__" in lookup_str:
                 field_name, lookup_type = lookup_str.rsplit("__", 1)
             else:
                 field_name, lookup_type = lookup_str, "exact"
 
-            column = model._meta.get_field(field_name).column  # noqa: SLF001
+            column = model._meta.get_field(field_name).column  # type: ignore[union-attr]  # noqa: SLF001
             col = f"{row_ref}.{qn(column)}"
 
-            if lookup_type == "exact":
-                parts.append(f"{col} IS NULL" if value is None else f"{col} = {_sql_value(value)}")
+            if lookup_type in _LOOKUP_OPS:
+                if lookup_type == "exact" and value is None:
+                    parts.append(f"{col} IS NULL")
+                else:
+                    parts.append(f"{col} {_LOOKUP_OPS[lookup_type]} {_sql_value(value)}")
             elif lookup_type == "in":
                 vals = ", ".join(_sql_value(v) for v in value)
                 parts.append(f"{col} IN ({vals})")
@@ -113,7 +151,7 @@ def _resolve_field_ref(
             raise ValueError(msg) from None
 
         if field.is_relation:
-            fk_column = field.column
+            fk_column = field.column  # type: ignore[union-attr]
             related_model = field.related_model
             if fk_ref is None:
                 fk_ref = f"NEW.{qn(fk_column)}"
@@ -121,10 +159,10 @@ def _resolve_field_ref(
                 tbl = qn(current_model._meta.db_table)  # noqa: SLF001
                 pk = qn(current_model._meta.pk.column)  # noqa: SLF001
                 fk_ref = f"(SELECT {qn(fk_column)} FROM {tbl} WHERE {pk} = {fk_ref})"
-            current_model = related_model
+            current_model = related_model  # type: ignore[assignment]
         else:
             # Concrete field found — remaining parts (if any) are the lookup.
-            col = qn(field.column)
+            col = qn(field.column)  # type: ignore[union-attr]
             if fk_ref is None:
                 sql = f"NEW.{col}"
             else:
@@ -140,9 +178,10 @@ def _resolve_field_ref(
 
 def _resolve_f(f_expr: F, model: type[Model], qn: Callable[[str], str]) -> str:
     """Resolve an ``F()`` expression to SQL (no lookup suffix expected)."""
-    sql, lookup = _resolve_field_ref(f_expr.name, model, qn)
+    name: str = f_expr.name  # type: ignore[attr-defined]
+    sql, lookup = _resolve_field_ref(name, model, qn)
     if lookup != "exact":
-        msg = f"F expression '{f_expr.name}' should not contain a lookup suffix (got '{lookup}')"
+        msg = f"F expression '{name}' should not contain a lookup suffix (got '{lookup}')"
         raise ValueError(msg)
     return sql
 
@@ -171,7 +210,7 @@ def _check_q_to_sql(q: Q, model: type[Model], qn: Callable[[str], str]) -> str:
         if isinstance(child, Q):
             parts.append(f"({_check_q_to_sql(child, model, qn)})")
         else:
-            lhs_chain, rhs_value = child
+            lhs_chain, rhs_value = child  # type: ignore[misc]
             lhs_sql, lookup = _resolve_field_ref(lhs_chain, model, qn)
             rhs_sql = _resolve_f(rhs_value, model, qn) if isinstance(rhs_value, F) else _sql_value(rhs_value)
             parts.append(_build_comparison(lhs_sql, lookup, rhs_value, rhs_sql))
@@ -225,26 +264,27 @@ class UniqueConstraintTrigger(BaseConstraint):
         app_label, model_name = self.across.split(".")
         return apps.get_model(app_label, model_name)
 
-    def _function_name(self) -> str:
-        return f"pgc_fn_{self.name}"
+    def _function_name(self, table: str) -> str:
+        return _make_fn_name(table, self.name)
 
     # -- Schema SQL -------------------------------------------------
 
-    def constraint_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> None:
+    def constraint_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         schema_editor.deferred_sql.append(self.create_sql(model, schema_editor))
+        return ""
 
-    def create_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+    def create_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         qn = schema_editor.quote_name
         table = model._meta.db_table  # noqa: SLF001
-        column = model._meta.get_field(self.field).column  # noqa: SLF001
+        column = model._meta.get_field(self.field).column  # type: ignore[union-attr]  # noqa: SLF001
 
         across_model = self._get_across_model(model._meta.apps)  # noqa: SLF001
         across_table = across_model._meta.db_table  # noqa: SLF001
-        across_column = across_model._meta.get_field(self.across_field).column  # noqa: SLF001
+        across_column = across_model._meta.get_field(self.across_field).column  # type: ignore[union-attr]  # noqa: SLF001
 
-        fn = self._function_name()
+        fn = self._function_name(table)
         schema_editor.execute(
-            f"CREATE FUNCTION {qn(fn)}() RETURNS TRIGGER AS $body$ "
+            f"CREATE OR REPLACE FUNCTION {qn(fn)}() RETURNS TRIGGER AS $body$ "
             f"BEGIN "
             f"IF NEW.{qn(column)} IS NOT NULL AND EXISTS ("
             f"SELECT 1 FROM {qn(across_table)} "
@@ -256,7 +296,7 @@ class UniqueConstraintTrigger(BaseConstraint):
             f"USING ERRCODE = '23505', CONSTRAINT = '{self.name}'; "
             f"END IF; "
             f"RETURN NEW; "
-            f"END; $body$ LANGUAGE plpgsql"
+            f"END; $body$ LANGUAGE plpgsql",
         )
         return (
             f"CREATE CONSTRAINT TRIGGER {qn(self.name)} "
@@ -265,10 +305,10 @@ class UniqueConstraintTrigger(BaseConstraint):
             f"FOR EACH ROW EXECUTE FUNCTION {qn(fn)}()"
         )
 
-    def remove_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+    def remove_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         qn = schema_editor.quote_name
         table = model._meta.db_table  # noqa: SLF001
-        fn = self._function_name()
+        fn = self._function_name(table)
         schema_editor.execute(f"DROP TRIGGER IF EXISTS {qn(self.name)} ON {qn(table)}")
         return f"DROP FUNCTION IF EXISTS {qn(fn)}()"
 
@@ -287,12 +327,12 @@ class UniqueConstraintTrigger(BaseConstraint):
         if value is None:
             return
         across_model = self._get_across_model(instance._meta.apps)  # noqa: SLF001
-        if across_model.objects.using(using).filter(**{self.across_field: value}).exists():
+        if across_model.objects.using(using).filter(**{self.across_field: value}).exists():  # type: ignore[attr-defined]
             raise ValidationError(self.get_violation_error_message(), code=self.violation_error_code)
 
     # -- Serialisation ----------------------------------------------
 
-    def deconstruct(self) -> tuple[str, tuple[()], dict[str, Any]]:
+    def deconstruct(self) -> tuple[str, Sequence[Any], dict[str, Any]]:
         path, args, kwargs = super().deconstruct()
         path = path.replace("django_pgconstraints.constraints", "django_pgconstraints")
         kwargs["field"] = self.field
@@ -343,30 +383,31 @@ class CheckConstraintTrigger(BaseConstraint):
         violation_error_code: str | None = None,
         violation_error_message: str | None = None,
     ) -> None:
-        self.check = check
+        self.check: Q = check  # type: ignore[assignment]
         super().__init__(
             name=name,
             violation_error_code=violation_error_code,
             violation_error_message=violation_error_message,
         )
 
-    def _function_name(self) -> str:
-        return f"pgc_fn_{self.name}"
+    def _function_name(self, table: str) -> str:
+        return _make_fn_name(table, self.name)
 
     # -- Schema SQL -------------------------------------------------
 
-    def constraint_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> None:
+    def constraint_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         schema_editor.deferred_sql.append(self.create_sql(model, schema_editor))
+        return ""
 
-    def create_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+    def create_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         qn = schema_editor.quote_name
         table = model._meta.db_table  # noqa: SLF001
-        fn = self._function_name()
+        fn = self._function_name(table)
 
         check_sql = _check_q_to_sql(self.check, model, qn)
 
         schema_editor.execute(
-            f"CREATE FUNCTION {qn(fn)}() RETURNS TRIGGER AS $body$ "
+            f"CREATE OR REPLACE FUNCTION {qn(fn)}() RETURNS TRIGGER AS $body$ "
             f"BEGIN "
             f"IF NOT ({check_sql}) THEN "
             f"RAISE EXCEPTION "
@@ -374,7 +415,7 @@ class CheckConstraintTrigger(BaseConstraint):
             f"USING ERRCODE = '23514', CONSTRAINT = '{self.name}'; "
             f"END IF; "
             f"RETURN NEW; "
-            f"END; $body$ LANGUAGE plpgsql"
+            f"END; $body$ LANGUAGE plpgsql",
         )
         return (
             f"CREATE TRIGGER {qn(self.name)} "
@@ -382,10 +423,10 @@ class CheckConstraintTrigger(BaseConstraint):
             f"FOR EACH ROW EXECUTE FUNCTION {qn(fn)}()"
         )
 
-    def remove_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+    def remove_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         qn = schema_editor.quote_name
         table = model._meta.db_table  # noqa: SLF001
-        fn = self._function_name()
+        fn = self._function_name(table)
         schema_editor.execute(f"DROP TRIGGER IF EXISTS {qn(self.name)} ON {qn(table)}")
         return f"DROP FUNCTION IF EXISTS {qn(fn)}()"
 
@@ -404,7 +445,7 @@ class CheckConstraintTrigger(BaseConstraint):
 
     # -- Serialisation ----------------------------------------------
 
-    def deconstruct(self) -> tuple[str, tuple[()], dict[str, Any]]:
+    def deconstruct(self) -> tuple[str, Sequence[Any], dict[str, Any]]:
         path, args, kwargs = super().deconstruct()
         path = path.replace("django_pgconstraints.constraints", "django_pgconstraints")
         kwargs["check"] = self.check
@@ -455,29 +496,33 @@ class AllowedTransitions(BaseConstraint):
             violation_error_message=violation_error_message,
         )
 
-    def _function_name(self) -> str:
-        return f"pgc_fn_{self.name}"
+    def _function_name(self, table: str) -> str:
+        return _make_fn_name(table, self.name)
 
     # -- Schema SQL -------------------------------------------------
 
-    def constraint_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> None:
+    def constraint_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         schema_editor.deferred_sql.append(self.create_sql(model, schema_editor))
+        return ""
 
-    def create_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+    def create_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         qn = schema_editor.quote_name
         table = model._meta.db_table  # noqa: SLF001
-        column = model._meta.get_field(self.field).column  # noqa: SLF001
-        fn = self._function_name()
+        column = model._meta.get_field(self.field).column  # type: ignore[union-attr]  # noqa: SLF001
+        fn = self._function_name(table)
 
-        # Build OR-chain: (OLD.col = 'a' AND NEW.col IN ('b','c')) OR ...
+        # Build OR-chain using IS NOT DISTINCT FROM for NULL-safe comparison:
+        # (OLD.col IS NOT DISTINCT FROM 'a' AND NEW.col IN ('b','c')) OR ...
         conditions: list[str] = []
         for from_state, to_states in self.transitions.items():
             to_vals = ", ".join(_sql_value(s) for s in to_states)
-            conditions.append(f"(OLD.{qn(column)} = {_sql_value(from_state)} AND NEW.{qn(column)} IN ({to_vals}))")
+            conditions.append(
+                f"(OLD.{qn(column)} IS NOT DISTINCT FROM {_sql_value(from_state)} AND NEW.{qn(column)} IN ({to_vals}))",
+            )
         allowed = " OR ".join(conditions) if conditions else "FALSE"
 
         schema_editor.execute(
-            f"CREATE FUNCTION {qn(fn)}() RETURNS TRIGGER AS $body$ "
+            f"CREATE OR REPLACE FUNCTION {qn(fn)}() RETURNS TRIGGER AS $body$ "
             f"BEGIN "
             f"IF NOT ({allowed}) THEN "
             f"RAISE EXCEPTION "
@@ -486,7 +531,7 @@ class AllowedTransitions(BaseConstraint):
             f"USING ERRCODE = '23514', CONSTRAINT = '{self.name}'; "
             f"END IF; "
             f"RETURN NEW; "
-            f"END; $body$ LANGUAGE plpgsql"
+            f"END; $body$ LANGUAGE plpgsql",
         )
         return (
             f"CREATE TRIGGER {qn(self.name)} "
@@ -496,10 +541,10 @@ class AllowedTransitions(BaseConstraint):
             f"EXECUTE FUNCTION {qn(fn)}()"
         )
 
-    def remove_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+    def remove_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         qn = schema_editor.quote_name
         table = model._meta.db_table  # noqa: SLF001
-        fn = self._function_name()
+        fn = self._function_name(table)
         schema_editor.execute(f"DROP TRIGGER IF EXISTS {qn(self.name)} ON {qn(table)}")
         return f"DROP FUNCTION IF EXISTS {qn(fn)}()"
 
@@ -524,19 +569,20 @@ class AllowedTransitions(BaseConstraint):
                 .values_list(self.field, flat=True)
                 .get(pk=instance.pk)
             )
-        except model.DoesNotExist:
+        except model.DoesNotExist:  # type: ignore[attr-defined]
             return
 
         if old_value == new_value:
             return
 
-        allowed = self.transitions.get(str(old_value), [])
-        if str(new_value) not in allowed:
+        # Look up allowed transitions using the actual old value, not str().
+        allowed = self.transitions.get(old_value, [])
+        if new_value not in allowed:
             raise ValidationError(self.get_violation_error_message(), code=self.violation_error_code)
 
     # -- Serialisation ----------------------------------------------
 
-    def deconstruct(self) -> tuple[str, tuple[()], dict[str, Any]]:
+    def deconstruct(self) -> tuple[str, Sequence[Any], dict[str, Any]]:
         path, args, kwargs = super().deconstruct()
         path = path.replace("django_pgconstraints.constraints", "django_pgconstraints")
         kwargs["field"] = self.field
@@ -549,7 +595,8 @@ class AllowedTransitions(BaseConstraint):
         return super().__eq__(other)
 
     def __hash__(self) -> int:
-        return hash((self.name, self.field, tuple(sorted(self.transitions.items()))))
+        hashable = tuple(sorted((k, tuple(v)) for k, v in self.transitions.items()))
+        return hash((self.name, self.field, hashable))
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__qualname__}: field={self.field!r}>"
@@ -579,6 +626,9 @@ class Immutable(BaseConstraint):
         violation_error_code: str | None = None,
         violation_error_message: str | None = None,
     ) -> None:
+        if not fields:
+            msg = "Immutable constraint requires at least one field."
+            raise ValueError(msg)
         self.fields = list(fields)
         self.when = when
         super().__init__(
@@ -587,23 +637,24 @@ class Immutable(BaseConstraint):
             violation_error_message=violation_error_message,
         )
 
-    def _function_name(self) -> str:
-        return f"pgc_fn_{self.name}"
+    def _function_name(self, table: str) -> str:
+        return _make_fn_name(table, self.name)
 
     # -- Schema SQL -------------------------------------------------
 
-    def constraint_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> None:
+    def constraint_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         schema_editor.deferred_sql.append(self.create_sql(model, schema_editor))
+        return ""
 
-    def create_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+    def create_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         qn = schema_editor.quote_name
         table = model._meta.db_table  # noqa: SLF001
-        fn = self._function_name()
+        fn = self._function_name(table)
 
         # Build "any field changed?" check
         changed_parts = []
         for field_name in self.fields:
-            col = qn(model._meta.get_field(field_name).column)  # noqa: SLF001
+            col = qn(model._meta.get_field(field_name).column)  # type: ignore[union-attr]  # noqa: SLF001
             changed_parts.append(f"OLD.{col} IS DISTINCT FROM NEW.{col}")
         changed_check = " OR ".join(changed_parts)
 
@@ -615,7 +666,7 @@ class Immutable(BaseConstraint):
             full_check = changed_check
 
         schema_editor.execute(
-            f"CREATE FUNCTION {qn(fn)}() RETURNS TRIGGER AS $body$ "
+            f"CREATE OR REPLACE FUNCTION {qn(fn)}() RETURNS TRIGGER AS $body$ "
             f"BEGIN "
             f"IF {full_check} THEN "
             f"RAISE EXCEPTION "
@@ -623,14 +674,14 @@ class Immutable(BaseConstraint):
             f"USING ERRCODE = '23514', CONSTRAINT = '{self.name}'; "
             f"END IF; "
             f"RETURN NEW; "
-            f"END; $body$ LANGUAGE plpgsql"
+            f"END; $body$ LANGUAGE plpgsql",
         )
         return f"CREATE TRIGGER {qn(self.name)} BEFORE UPDATE ON {qn(table)} FOR EACH ROW EXECUTE FUNCTION {qn(fn)}()"
 
-    def remove_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+    def remove_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         qn = schema_editor.quote_name
         table = model._meta.db_table  # noqa: SLF001
-        fn = self._function_name()
+        fn = self._function_name(table)
         schema_editor.execute(f"DROP TRIGGER IF EXISTS {qn(self.name)} ON {qn(table)}")
         return f"DROP FUNCTION IF EXISTS {qn(fn)}()"
 
@@ -656,7 +707,7 @@ class Immutable(BaseConstraint):
             qs = qs.filter(self.when)
         try:
             old_values = qs.values(*check_fields).get()
-        except model.DoesNotExist:
+        except model.DoesNotExist:  # type: ignore[attr-defined]
             return  # row doesn't exist or condition not met
 
         for field_name in check_fields:
@@ -665,7 +716,7 @@ class Immutable(BaseConstraint):
 
     # -- Serialisation ----------------------------------------------
 
-    def deconstruct(self) -> tuple[str, tuple[()], dict[str, Any]]:
+    def deconstruct(self) -> tuple[str, Sequence[Any], dict[str, Any]]:
         path, args, kwargs = super().deconstruct()
         path = path.replace("django_pgconstraints.constraints", "django_pgconstraints")
         kwargs["fields"] = self.fields
@@ -679,7 +730,7 @@ class Immutable(BaseConstraint):
         return super().__eq__(other)
 
     def __hash__(self) -> int:
-        return hash((self.name, tuple(self.fields)))
+        return hash((self.name, tuple(self.fields), self.when))
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__qualname__}: fields={self.fields!r}>"
@@ -730,50 +781,50 @@ class MaintainedCount(BaseConstraint):
         """Return all DDL statements (functions + triggers) as a list."""
         qn = schema_editor.quote_name
         table = model._meta.db_table  # noqa: SLF001
-        fk_col = qn(model._meta.get_field(self.fk_field).column)  # noqa: SLF001
+        fk_col = qn(model._meta.get_field(self.fk_field).column)  # type: ignore[union-attr]  # noqa: SLF001
 
         target_model = self._get_target_model(model._meta.apps)  # noqa: SLF001
         t_table = qn(target_model._meta.db_table)  # noqa: SLF001
         t_pk = qn(target_model._meta.pk.column)  # noqa: SLF001
-        t_cnt = qn(target_model._meta.get_field(self.target_field).column)  # noqa: SLF001
+        t_cnt = qn(target_model._meta.get_field(self.target_field).column)  # type: ignore[union-attr]  # noqa: SLF001
 
         n = self.name
         stmts: list[str] = []
 
         # --- INSERT ---
-        fn_ins = f"pgc_fn_{n}_ins"
+        fn_ins = _make_fn_name(table, n, "_ins")
         stmts.append(
-            f"CREATE FUNCTION {qn(fn_ins)}() RETURNS TRIGGER AS $body$ "
+            f"CREATE OR REPLACE FUNCTION {qn(fn_ins)}() RETURNS TRIGGER AS $body$ "
             f"BEGIN "
             f"IF NEW.{fk_col} IS NOT NULL THEN "
             f"UPDATE {t_table} SET {t_cnt} = {t_cnt} + 1 WHERE {t_pk} = NEW.{fk_col}; "
             f"END IF; "
             f"RETURN NEW; "
-            f"END; $body$ LANGUAGE plpgsql"
+            f"END; $body$ LANGUAGE plpgsql",
         )
         stmts.append(
-            f"CREATE TRIGGER {qn(n + '_ins')} AFTER INSERT ON {qn(table)} FOR EACH ROW EXECUTE FUNCTION {qn(fn_ins)}()"
+            f"CREATE TRIGGER {qn(n + '_ins')} AFTER INSERT ON {qn(table)} FOR EACH ROW EXECUTE FUNCTION {qn(fn_ins)}()",
         )
 
         # --- DELETE ---
-        fn_del = f"pgc_fn_{n}_del"
+        fn_del = _make_fn_name(table, n, "_del")
         stmts.append(
-            f"CREATE FUNCTION {qn(fn_del)}() RETURNS TRIGGER AS $body$ "
+            f"CREATE OR REPLACE FUNCTION {qn(fn_del)}() RETURNS TRIGGER AS $body$ "
             f"BEGIN "
             f"IF OLD.{fk_col} IS NOT NULL THEN "
             f"UPDATE {t_table} SET {t_cnt} = {t_cnt} - 1 WHERE {t_pk} = OLD.{fk_col}; "
             f"END IF; "
             f"RETURN OLD; "
-            f"END; $body$ LANGUAGE plpgsql"
+            f"END; $body$ LANGUAGE plpgsql",
         )
         stmts.append(
-            f"CREATE TRIGGER {qn(n + '_del')} AFTER DELETE ON {qn(table)} FOR EACH ROW EXECUTE FUNCTION {qn(fn_del)}()"
+            f"CREATE TRIGGER {qn(n + '_del')} AFTER DELETE ON {qn(table)} FOR EACH ROW EXECUTE FUNCTION {qn(fn_del)}()",
         )
 
         # --- UPDATE (FK reassignment) ---
-        fn_upd = f"pgc_fn_{n}_upd"
+        fn_upd = _make_fn_name(table, n, "_upd")
         stmts.append(
-            f"CREATE FUNCTION {qn(fn_upd)}() RETURNS TRIGGER AS $body$ "
+            f"CREATE OR REPLACE FUNCTION {qn(fn_upd)}() RETURNS TRIGGER AS $body$ "
             f"BEGIN "
             f"IF OLD.{fk_col} IS DISTINCT FROM NEW.{fk_col} THEN "
             f"IF OLD.{fk_col} IS NOT NULL THEN "
@@ -784,34 +835,36 @@ class MaintainedCount(BaseConstraint):
             f"END IF; "
             f"END IF; "
             f"RETURN NEW; "
-            f"END; $body$ LANGUAGE plpgsql"
+            f"END; $body$ LANGUAGE plpgsql",
         )
         stmts.append(
             f"CREATE TRIGGER {qn(n + '_upd')} "
             f"AFTER UPDATE OF {fk_col} ON {qn(table)} "
-            f"FOR EACH ROW EXECUTE FUNCTION {qn(fn_upd)}()"
+            f"FOR EACH ROW EXECUTE FUNCTION {qn(fn_upd)}()",
         )
         return stmts
 
-    def constraint_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> None:
+    def constraint_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         # Defer ALL statements (functions + triggers) until after CREATE TABLE.
         schema_editor.deferred_sql.extend(self._build_sql(model, schema_editor))
+        return ""
 
-    def create_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+    def create_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         # Called by add_constraint — table already exists, execute immediately.
         stmts = self._build_sql(model, schema_editor)
         for sql in stmts[:-1]:
             schema_editor.execute(sql)
         return stmts[-1]
 
-    def remove_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+    def remove_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:  # type: ignore[override]
         qn = schema_editor.quote_name
         table = model._meta.db_table  # noqa: SLF001
         n = self.name
 
-        for suffix in ("ins", "del", "upd"):
-            schema_editor.execute(f"DROP TRIGGER IF EXISTS {qn(n + '_' + suffix)} ON {qn(table)}")
-            schema_editor.execute(f"DROP FUNCTION IF EXISTS {qn('pgc_fn_' + n + '_' + suffix)}()")
+        for suffix in ("_ins", "_del", "_upd"):
+            schema_editor.execute(f"DROP TRIGGER IF EXISTS {qn(n + suffix)} ON {qn(table)}")
+            fn = _make_fn_name(table, n, suffix)
+            schema_editor.execute(f"DROP FUNCTION IF EXISTS {qn(fn)}()")
         return ""  # everything already dropped above
 
     # -- Python validation ------------------------------------------
@@ -828,7 +881,7 @@ class MaintainedCount(BaseConstraint):
 
     # -- Serialisation ----------------------------------------------
 
-    def deconstruct(self) -> tuple[str, tuple[()], dict[str, Any]]:
+    def deconstruct(self) -> tuple[str, Sequence[Any], dict[str, Any]]:
         path, args, kwargs = super().deconstruct()
         path = path.replace("django_pgconstraints.constraints", "django_pgconstraints")
         kwargs["target"] = self.target
