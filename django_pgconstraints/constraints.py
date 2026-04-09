@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import DEFAULT_DB_ALIAS
-from django.db.models import BaseConstraint, Q
+from django.db.models import BaseConstraint, F, Q
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -19,6 +19,14 @@ if TYPE_CHECKING:
 # ------------------------------------------------------------------
 # SQL helpers
 # ------------------------------------------------------------------
+
+_LOOKUP_OPS: dict[str, str] = {
+    "exact": "=",
+    "gt": ">",
+    "gte": ">=",
+    "lt": "<",
+    "lte": "<=",
+}
 
 
 def _sql_value(value: str | float | bool | None) -> str:  # noqa: FBT001
@@ -36,7 +44,11 @@ def _sql_value(value: str | float | bool | None) -> str:  # noqa: FBT001
 
 
 def _q_to_sql(q: Q, model: type[Model], qn: Callable[[str], str], row_ref: str = "OLD") -> str:
-    """Compile a Q object to PL/pgSQL using a row reference (OLD/NEW)."""
+    """Compile a simple Q object to PL/pgSQL using a row reference (OLD/NEW).
+
+    Only supports single-table field references (no FK traversal).
+    For cross-table Q compilation, use :func:`_check_q_to_sql`.
+    """
     parts: list[str] = []
     for child in q.children:
         if isinstance(child, Q):
@@ -68,19 +80,121 @@ def _q_to_sql(q: Q, model: type[Model], qn: Callable[[str], str], row_ref: str =
     return result
 
 
+# ------------------------------------------------------------------
+# Cross-table field resolution (used by CheckConstraintTrigger)
+# ------------------------------------------------------------------
+
+
+def _resolve_field_ref(
+    chain: str,
+    model: type[Model],
+    qn: Callable[[str], str],
+) -> tuple[str, str]:
+    """Resolve a potentially cross-table field reference to SQL.
+
+    *chain* is a ``__``-separated string like ``"product__stock__gte"``
+    where each segment is either a relation hop, a concrete field, or a
+    trailing lookup suffix.
+
+    Returns ``(sql_expression, lookup_type)``.  The SQL expression uses
+    ``NEW.`` for local columns and nested sub-selects for FK hops.
+    """
+    parts = chain.split("__")
+    current_model = model
+    fk_ref: str | None = None  # accumulated PK reference through FK hops
+
+    for i, part in enumerate(parts):
+        try:
+            field = current_model._meta.get_field(part)  # noqa: SLF001
+        except FieldDoesNotExist:
+            # Everything from here is the lookup suffix.
+            lookup = "__".join(parts[i:])
+            msg = f"No field resolved before lookup suffix '{lookup}' in '{chain}'"
+            raise ValueError(msg) from None
+
+        if field.is_relation:
+            fk_column = field.column
+            related_model = field.related_model
+            if fk_ref is None:
+                fk_ref = f"NEW.{qn(fk_column)}"
+            else:
+                tbl = qn(current_model._meta.db_table)  # noqa: SLF001
+                pk = qn(current_model._meta.pk.column)  # noqa: SLF001
+                fk_ref = f"(SELECT {qn(fk_column)} FROM {tbl} WHERE {pk} = {fk_ref})"
+            current_model = related_model
+        else:
+            # Concrete field found — remaining parts (if any) are the lookup.
+            col = qn(field.column)
+            if fk_ref is None:
+                sql = f"NEW.{col}"
+            else:
+                tbl = qn(current_model._meta.db_table)  # noqa: SLF001
+                pk = qn(current_model._meta.pk.column)  # noqa: SLF001
+                sql = f"(SELECT {col} FROM {tbl} WHERE {pk} = {fk_ref})"
+            lookup = "__".join(parts[i + 1 :]) or "exact"
+            return sql, lookup
+
+    msg = f"Field chain '{chain}' ends with a relation, expected a concrete field"
+    raise ValueError(msg)
+
+
+def _resolve_f(f_expr: F, model: type[Model], qn: Callable[[str], str]) -> str:
+    """Resolve an ``F()`` expression to SQL (no lookup suffix expected)."""
+    sql, lookup = _resolve_field_ref(f_expr.name, model, qn)
+    if lookup != "exact":
+        msg = f"F expression '{f_expr.name}' should not contain a lookup suffix (got '{lookup}')"
+        raise ValueError(msg)
+    return sql
+
+
+def _build_comparison(lhs_sql: str, lookup: str, rhs_value: object, rhs_sql: str) -> str:
+    """Build a single SQL comparison clause."""
+    if lookup in _LOOKUP_OPS:
+        if lookup == "exact" and rhs_value is None:
+            return f"{lhs_sql} IS NULL"
+        return f"{lhs_sql} {_LOOKUP_OPS[lookup]} {rhs_sql}"
+    if lookup == "in":
+        if isinstance(rhs_value, (list, tuple)):
+            vals = ", ".join(_sql_value(v) for v in rhs_value)
+            return f"{lhs_sql} IN ({vals})"
+        return f"{lhs_sql} IN ({rhs_sql})"
+    if lookup == "isnull":
+        return f"{lhs_sql} IS NULL" if rhs_value else f"{lhs_sql} IS NOT NULL"
+    msg = f"Unsupported lookup: {lookup}"
+    raise ValueError(msg)
+
+
+def _check_q_to_sql(q: Q, model: type[Model], qn: Callable[[str], str]) -> str:
+    """Compile a Q object to trigger SQL, supporting FK traversal and F()."""
+    parts: list[str] = []
+    for child in q.children:
+        if isinstance(child, Q):
+            parts.append(f"({_check_q_to_sql(child, model, qn)})")
+        else:
+            lhs_chain, rhs_value = child
+            lhs_sql, lookup = _resolve_field_ref(lhs_chain, model, qn)
+            rhs_sql = _resolve_f(rhs_value, model, qn) if isinstance(rhs_value, F) else _sql_value(rhs_value)
+            parts.append(_build_comparison(lhs_sql, lookup, rhs_value, rhs_sql))
+
+    result = f" {q.connector} ".join(parts)
+    if q.negated:
+        result = f"NOT ({result})"
+    return result
+
+
 # ======================================================================
-# CrossTableUnique
+# UniqueConstraintTrigger
 # ======================================================================
 
 
-class CrossTableUnique(BaseConstraint):
+class UniqueConstraintTrigger(BaseConstraint):
     """Enforce uniqueness of a field's value across two tables.
 
     Uses a deferrable constraint trigger that checks the other table
     on INSERT or UPDATE and raises a unique-violation error (SQLSTATE 23505)
     if a duplicate is found.
 
-    Each table in the pair needs its own ``CrossTableUnique`` constraint
+    Each table in the pair needs its own ``UniqueConstraintTrigger``
     pointing at the other table.  Within-table uniqueness is **not** enforced
     by this constraint — use Django's ``UniqueConstraint`` for that.
     """
@@ -188,7 +302,7 @@ class CrossTableUnique(BaseConstraint):
         return path, args, kwargs
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, CrossTableUnique):
+        if isinstance(other, UniqueConstraintTrigger):
             return (
                 self.name == other.name
                 and self.field == other.field
@@ -202,6 +316,110 @@ class CrossTableUnique(BaseConstraint):
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__qualname__}: field={self.field!r} across={self.across!r}>"
+
+
+# ======================================================================
+# CheckConstraintTrigger
+# ======================================================================
+
+
+class CheckConstraintTrigger(BaseConstraint):
+    """A check constraint that can reference related tables via FK traversal.
+
+    Works like Django's ``CheckConstraint`` but the ``check`` Q object may
+    contain ``F()`` expressions that traverse foreign-key relationships
+    (e.g. ``F("product__stock")``).  Enforced by a BEFORE INSERT OR UPDATE
+    trigger.
+    """
+
+    violation_error_code = "check_constraint_trigger"
+    violation_error_message = "Check constraint is violated."
+
+    def __init__(
+        self,
+        *,
+        check: Q,
+        name: str,
+        violation_error_code: str | None = None,
+        violation_error_message: str | None = None,
+    ) -> None:
+        self.check = check
+        super().__init__(
+            name=name,
+            violation_error_code=violation_error_code,
+            violation_error_message=violation_error_message,
+        )
+
+    def _function_name(self) -> str:
+        return f"pgc_fn_{self.name}"
+
+    # -- Schema SQL -------------------------------------------------
+
+    def constraint_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> None:
+        schema_editor.deferred_sql.append(self.create_sql(model, schema_editor))
+
+    def create_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+        qn = schema_editor.quote_name
+        table = model._meta.db_table  # noqa: SLF001
+        fn = self._function_name()
+
+        check_sql = _check_q_to_sql(self.check, model, qn)
+
+        schema_editor.execute(
+            f"CREATE FUNCTION {qn(fn)}() RETURNS TRIGGER AS $body$ "
+            f"BEGIN "
+            f"IF NOT ({check_sql}) THEN "
+            f"RAISE EXCEPTION "
+            f"'Check constraint \"%%s\" is violated.', '{self.name}' "
+            f"USING ERRCODE = '23514', CONSTRAINT = '{self.name}'; "
+            f"END IF; "
+            f"RETURN NEW; "
+            f"END; $body$ LANGUAGE plpgsql"
+        )
+        return (
+            f"CREATE TRIGGER {qn(self.name)} "
+            f"BEFORE INSERT OR UPDATE ON {qn(table)} "
+            f"FOR EACH ROW EXECUTE FUNCTION {qn(fn)}()"
+        )
+
+    def remove_sql(self, model: type[Model], schema_editor: BaseDatabaseSchemaEditor) -> str:
+        qn = schema_editor.quote_name
+        table = model._meta.db_table  # noqa: SLF001
+        fn = self._function_name()
+        schema_editor.execute(f"DROP TRIGGER IF EXISTS {qn(self.name)} ON {qn(table)}")
+        return f"DROP FUNCTION IF EXISTS {qn(fn)}()"
+
+    # -- Python validation ------------------------------------------
+
+    def validate(
+        self,
+        model: type[Model],  # noqa: ARG002
+        instance: Model,  # noqa: ARG002
+        exclude: set[str] | None = None,  # noqa: ARG002
+        using: str = DEFAULT_DB_ALIAS,  # noqa: ARG002
+    ) -> None:
+        # Cross-table checks require DB access to resolve FK chains;
+        # the trigger is the primary enforcement mechanism.
+        return
+
+    # -- Serialisation ----------------------------------------------
+
+    def deconstruct(self) -> tuple[str, tuple[()], dict[str, Any]]:
+        path, args, kwargs = super().deconstruct()
+        path = path.replace("django_pgconstraints.constraints", "django_pgconstraints")
+        kwargs["check"] = self.check
+        return path, args, kwargs
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, CheckConstraintTrigger):
+            return self.name == other.name and self.check == other.check
+        return super().__eq__(other)
+
+    def __hash__(self) -> int:
+        return hash((self.name,))
+
+    def __repr__(self) -> str:
+        return f"<{self.__class__.__qualname__}: check={self.check!r}>"
 
 
 # ======================================================================

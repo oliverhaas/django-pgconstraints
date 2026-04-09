@@ -1,9 +1,15 @@
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 
-from django_pgconstraints import AllowedTransitions, CrossTableUnique, Immutable, MaintainedCount
+from django_pgconstraints import (
+    AllowedTransitions,
+    CheckConstraintTrigger,
+    Immutable,
+    MaintainedCount,
+    UniqueConstraintTrigger,
+)
 
-# --- CrossTableUnique models ---
+# --- UniqueConstraintTrigger models ---
 
 
 class Page(models.Model):
@@ -11,7 +17,7 @@ class Page(models.Model):
 
     class Meta:
         constraints = [
-            CrossTableUnique(
+            UniqueConstraintTrigger(
                 field="slug",
                 across="testapp.Post",
                 name="testapp_page_unique_slug_across_post",
@@ -24,7 +30,7 @@ class Post(models.Model):
 
     class Meta:
         constraints = [
-            CrossTableUnique(
+            UniqueConstraintTrigger(
                 field="slug",
                 across="testapp.Page",
                 name="testapp_post_unique_slug_across_page",
@@ -88,5 +94,31 @@ class Book(models.Model):
                 target_field="book_count",
                 fk_field="author",
                 name="testapp_maintain_author_book_count",
+            ),
+        ]
+
+
+# --- CheckConstraintTrigger models ---
+
+
+class Product(models.Model):
+    name = models.CharField(max_length=100)
+    stock = models.IntegerField(default=0)
+    max_order_quantity = models.IntegerField(default=100)
+
+
+class OrderLine(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    quantity = models.IntegerField()
+
+    class Meta:
+        constraints = [
+            CheckConstraintTrigger(
+                check=Q(quantity__lte=F("product__stock")),
+                name="testapp_orderline_qty_lte_stock",
+            ),
+            CheckConstraintTrigger(
+                check=Q(quantity__gt=0),
+                name="testapp_orderline_qty_positive",
             ),
         ]

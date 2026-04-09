@@ -1,11 +1,11 @@
-"""Tests for CrossTableUnique constraint."""
+"""Tests for UniqueConstraintTrigger."""
 
 import pytest
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from testapp.models import Page, Post
 
-from django_pgconstraints import CrossTableUnique
+from django_pgconstraints import UniqueConstraintTrigger
 
 # ---------------------------------------------------------------------------
 # DB-level enforcement (requires real transactions so deferred triggers fire)
@@ -13,7 +13,7 @@ from django_pgconstraints import CrossTableUnique
 
 
 @pytest.mark.django_db(transaction=True)
-class TestCrossTableUniqueEnforcement:
+class TestUniqueConstraintTriggerEnforcement:
     """Verify the PostgreSQL trigger blocks duplicate values across tables."""
 
     def test_insert_duplicate_across_tables(self):
@@ -65,7 +65,7 @@ class TestCrossTableUniqueEnforcement:
 
 
 @pytest.mark.django_db(transaction=True)
-class TestCrossTableUniqueValidation:
+class TestUniqueConstraintTriggerValidation:
     """Verify the Python-side validate() method."""
 
     def test_validate_raises_on_duplicate(self):
@@ -99,13 +99,13 @@ class TestCrossTableUniqueValidation:
 # ---------------------------------------------------------------------------
 
 
-class TestCrossTableUniqueDeconstruct:
+class TestUniqueConstraintTriggerDeconstruct:
     """Verify deconstruct() produces a serialisable representation."""
 
     def test_deconstruct_basic(self):
-        constraint = CrossTableUnique(field="slug", across="myapp.Post", name="my_constraint")
+        constraint = UniqueConstraintTrigger(field="slug", across="myapp.Post", name="my_constraint")
         path, args, kwargs = constraint.deconstruct()
-        assert path == "django_pgconstraints.CrossTableUnique"
+        assert path == "django_pgconstraints.UniqueConstraintTrigger"
         assert args == ()
         assert kwargs["field"] == "slug"
         assert kwargs["across"] == "myapp.Post"
@@ -113,7 +113,7 @@ class TestCrossTableUniqueDeconstruct:
         assert "across_field" not in kwargs
 
     def test_deconstruct_with_across_field(self):
-        constraint = CrossTableUnique(
+        constraint = UniqueConstraintTrigger(
             field="slug",
             across="myapp.Post",
             across_field="url_slug",
@@ -123,19 +123,19 @@ class TestCrossTableUniqueDeconstruct:
         assert kwargs["across_field"] == "url_slug"
 
     def test_deconstruct_omits_across_field_when_same(self):
-        constraint = CrossTableUnique(field="slug", across="myapp.Post", name="c")
+        constraint = UniqueConstraintTrigger(field="slug", across="myapp.Post", name="c")
         _, _, kwargs = constraint.deconstruct()
         assert "across_field" not in kwargs
 
     def test_roundtrip(self):
-        original = CrossTableUnique(
+        original = UniqueConstraintTrigger(
             field="slug",
             across="myapp.Post",
             across_field="url_slug",
             name="my_constraint",
         )
         path, args, kwargs = original.deconstruct()
-        restored = CrossTableUnique(*args, **kwargs)
+        restored = UniqueConstraintTrigger(*args, **kwargs)
         assert original == restored
 
 
@@ -144,19 +144,19 @@ class TestCrossTableUniqueDeconstruct:
 # ---------------------------------------------------------------------------
 
 
-class TestCrossTableUniqueEquality:
+class TestUniqueConstraintTriggerEquality:
     def test_equal(self):
-        a = CrossTableUnique(field="slug", across="myapp.Post", name="c")
-        b = CrossTableUnique(field="slug", across="myapp.Post", name="c")
+        a = UniqueConstraintTrigger(field="slug", across="myapp.Post", name="c")
+        b = UniqueConstraintTrigger(field="slug", across="myapp.Post", name="c")
         assert a == b
 
     def test_not_equal_different_field(self):
-        a = CrossTableUnique(field="slug", across="myapp.Post", name="c")
-        b = CrossTableUnique(field="title", across="myapp.Post", name="c")
+        a = UniqueConstraintTrigger(field="slug", across="myapp.Post", name="c")
+        b = UniqueConstraintTrigger(field="title", across="myapp.Post", name="c")
         assert a != b
 
     def test_hashable(self):
-        c = CrossTableUnique(field="slug", across="myapp.Post", name="c")
+        c = UniqueConstraintTrigger(field="slug", across="myapp.Post", name="c")
         assert hash(c) == hash(c)
         assert {c}  # can be added to a set
 
@@ -167,7 +167,7 @@ class TestCrossTableUniqueEquality:
 
 
 @pytest.mark.django_db(transaction=True)
-class TestCrossTableUniqueTriggerLifecycle:
+class TestUniqueConstraintTriggerTriggerLifecycle:
     """Verify triggers and functions can be created and removed cleanly."""
 
     def _trigger_exists(self, trigger_name, table_name):
