@@ -40,6 +40,7 @@ dev = [
   "pytest-django==4.12.0",
   "pytest-xdist==3.8.0",
   "ruff==0.15.9",
+  "psycopg[c]==3.2.9",
 ]
 docs = ["mkdocs==1.6.1", "mkdocs-material==9.7.6", "mike==2.1.4"]
 
@@ -60,20 +61,25 @@ fix = true
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["COM812", "D", "E501", "EM", "TRY003"]
+ignore = ["COM812", "D", "E501", "EM", "S608", "TRY003"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
   "ANN",
   "ARG",
+  "DJ008",
   "F841",
   "FBT",
   "PT006",
   "PT011",
   "PT013",
   "PT018",
+  "RUF012",
+  "RUF059",
   "S101",
   "S105",
+  "S108",
+  "SLF001",
 ]
 
 [tool.mypy]

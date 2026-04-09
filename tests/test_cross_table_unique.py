@@ -1,0 +1,201 @@
+"""Tests for CrossTableUnique constraint."""
+
+import pytest
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection
+from testapp.models import Page, Post
+
+from django_pgconstraints import CrossTableUnique
+
+# ---------------------------------------------------------------------------
+# DB-level enforcement (requires real transactions so deferred triggers fire)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCrossTableUniqueEnforcement:
+    """Verify the PostgreSQL trigger blocks duplicate values across tables."""
+
+    def test_insert_duplicate_across_tables(self):
+        Page.objects.create(slug="hello")
+        with pytest.raises(IntegrityError):
+            Post.objects.create(slug="hello")
+
+    def test_reverse_direction(self):
+        Post.objects.create(slug="world")
+        with pytest.raises(IntegrityError):
+            Page.objects.create(slug="world")
+
+    def test_different_values_allowed(self):
+        Page.objects.create(slug="page-slug")
+        Post.objects.create(slug="post-slug")
+
+    def test_distinct_values_in_same_pair(self):
+        """Multiple distinct values across the pair should all coexist."""
+        Page.objects.create(slug="alpha")
+        Post.objects.create(slug="beta")
+        Page.objects.create(slug="gamma")
+        Post.objects.create(slug="delta")
+
+    def test_update_to_duplicate_blocked(self):
+        Page.objects.create(slug="taken")
+        post = Post.objects.create(slug="free")
+        post.slug = "taken"
+        with pytest.raises(IntegrityError):
+            post.save()
+
+    def test_same_value_in_same_table_uses_regular_unique(self):
+        """Within-table uniqueness is handled by the regular unique constraint."""
+        Page.objects.create(slug="dup")
+        with pytest.raises(IntegrityError):
+            Page.objects.create(slug="dup")
+
+
+# ---------------------------------------------------------------------------
+# Python-level validation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCrossTableUniqueValidation:
+    """Verify the Python-side validate() method."""
+
+    def test_validate_raises_on_duplicate(self):
+        Page.objects.create(slug="existing")
+        post = Post(slug="existing")
+        constraint = Post._meta.constraints[0]
+        with pytest.raises(ValidationError) as exc_info:
+            constraint.validate(Post, post)
+        assert exc_info.value.code == "cross_table_unique"
+
+    def test_validate_passes_for_unique_value(self):
+        Page.objects.create(slug="taken")
+        post = Post(slug="available")
+        constraint = Post._meta.constraints[0]
+        constraint.validate(Post, post)  # should not raise
+
+    def test_validate_skips_excluded_field(self):
+        Page.objects.create(slug="existing")
+        post = Post(slug="existing")
+        constraint = Post._meta.constraints[0]
+        constraint.validate(Post, post, exclude={"slug"})  # should not raise
+
+    def test_validate_skips_null(self):
+        post = Post(slug=None)
+        constraint = Post._meta.constraints[0]
+        constraint.validate(Post, post)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# Migration serialisation
+# ---------------------------------------------------------------------------
+
+
+class TestCrossTableUniqueDeconstruct:
+    """Verify deconstruct() produces a serialisable representation."""
+
+    def test_deconstruct_basic(self):
+        constraint = CrossTableUnique(field="slug", across="myapp.Post", name="my_constraint")
+        path, args, kwargs = constraint.deconstruct()
+        assert path == "django_pgconstraints.CrossTableUnique"
+        assert args == ()
+        assert kwargs["field"] == "slug"
+        assert kwargs["across"] == "myapp.Post"
+        assert kwargs["name"] == "my_constraint"
+        assert "across_field" not in kwargs
+
+    def test_deconstruct_with_across_field(self):
+        constraint = CrossTableUnique(
+            field="slug",
+            across="myapp.Post",
+            across_field="url_slug",
+            name="my_constraint",
+        )
+        _, _, kwargs = constraint.deconstruct()
+        assert kwargs["across_field"] == "url_slug"
+
+    def test_deconstruct_omits_across_field_when_same(self):
+        constraint = CrossTableUnique(field="slug", across="myapp.Post", name="c")
+        _, _, kwargs = constraint.deconstruct()
+        assert "across_field" not in kwargs
+
+    def test_roundtrip(self):
+        original = CrossTableUnique(
+            field="slug",
+            across="myapp.Post",
+            across_field="url_slug",
+            name="my_constraint",
+        )
+        path, args, kwargs = original.deconstruct()
+        restored = CrossTableUnique(*args, **kwargs)
+        assert original == restored
+
+
+# ---------------------------------------------------------------------------
+# Equality / hashing
+# ---------------------------------------------------------------------------
+
+
+class TestCrossTableUniqueEquality:
+    def test_equal(self):
+        a = CrossTableUnique(field="slug", across="myapp.Post", name="c")
+        b = CrossTableUnique(field="slug", across="myapp.Post", name="c")
+        assert a == b
+
+    def test_not_equal_different_field(self):
+        a = CrossTableUnique(field="slug", across="myapp.Post", name="c")
+        b = CrossTableUnique(field="title", across="myapp.Post", name="c")
+        assert a != b
+
+    def test_hashable(self):
+        c = CrossTableUnique(field="slug", across="myapp.Post", name="c")
+        assert hash(c) == hash(c)
+        assert {c}  # can be added to a set
+
+
+# ---------------------------------------------------------------------------
+# Trigger lifecycle (create / remove SQL)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCrossTableUniqueTriggerLifecycle:
+    """Verify triggers and functions can be created and removed cleanly."""
+
+    def _trigger_exists(self, trigger_name, table_name):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT 1 FROM information_schema.triggers WHERE trigger_name = %s AND event_object_table = %s",
+                [trigger_name, table_name],
+            )
+            return cursor.fetchone() is not None
+
+    def _function_exists(self, function_name):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT 1 FROM pg_proc WHERE proname = %s",
+                [function_name],
+            )
+            return cursor.fetchone() is not None
+
+    def test_triggers_created(self):
+        assert self._trigger_exists("testapp_page_unique_slug_across_post", "testapp_page")
+        assert self._trigger_exists("testapp_post_unique_slug_across_page", "testapp_post")
+
+    def test_functions_created(self):
+        assert self._function_exists("pgc_fn_testapp_page_unique_slug_across_post")
+        assert self._function_exists("pgc_fn_testapp_post_unique_slug_across_page")
+
+    def test_remove_and_recreate(self):
+        constraint = Page._meta.constraints[0]
+        with connection.schema_editor() as editor:
+            editor.remove_constraint(Page, constraint)
+
+        assert not self._trigger_exists("testapp_page_unique_slug_across_post", "testapp_page")
+        assert not self._function_exists("pgc_fn_testapp_page_unique_slug_across_post")
+
+        with connection.schema_editor() as editor:
+            editor.add_constraint(Page, constraint)
+
+        assert self._trigger_exists("testapp_page_unique_slug_across_post", "testapp_page")
+        assert self._function_exists("pgc_fn_testapp_page_unique_slug_across_post")
