@@ -2,7 +2,7 @@
 
 import pytest
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
 from testapp.models import Page, Post
 
 from django_pgconstraints import CrossTableUnique
@@ -49,6 +49,15 @@ class TestCrossTableUniqueEnforcement:
         Page.objects.create(slug="dup")
         with pytest.raises(IntegrityError):
             Page.objects.create(slug="dup")
+
+    def test_deferred_trigger_fires_at_commit(self):
+        """The constraint trigger is INITIALLY DEFERRED — it fires at commit, not at statement time."""
+        Page.objects.create(slug="deferred-test")
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                # Inside the transaction, the INSERT succeeds (trigger is deferred).
+                Post.objects.create(slug="deferred-test")
+                # Trigger fires when atomic() commits — IntegrityError propagates.
 
 
 # ---------------------------------------------------------------------------
