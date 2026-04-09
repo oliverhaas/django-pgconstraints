@@ -53,11 +53,10 @@ class TestCrossTableUniqueEnforcement:
     def test_deferred_trigger_fires_at_commit(self):
         """The constraint trigger is INITIALLY DEFERRED — it fires at commit, not at statement time."""
         Page.objects.create(slug="deferred-test")
-        with pytest.raises(IntegrityError):
-            with transaction.atomic():
-                # Inside the transaction, the INSERT succeeds (trigger is deferred).
-                Post.objects.create(slug="deferred-test")
-                # Trigger fires when atomic() commits — IntegrityError propagates.
+        with pytest.raises(IntegrityError), transaction.atomic():
+            # Inside the transaction, the INSERT succeeds (trigger is deferred).
+            Post.objects.create(slug="deferred-test")
+            # Trigger fires when atomic() commits — IntegrityError propagates.
 
 
 # ---------------------------------------------------------------------------
