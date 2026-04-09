@@ -1,6 +1,10 @@
 """Tests for UniqueConstraintTrigger."""
 
+import threading
+
+import psycopg
 import pytest
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from testapp.models import Page, Post
@@ -207,3 +211,74 @@ class TestUniqueConstraintTriggerTriggerLifecycle:
 
         assert self._trigger_exists("testapp_page_unique_slug_across_post", "testapp_page")
         assert self._function_exists("pgc_fn_testapp_page_unique_slug_across_post")
+
+
+# ---------------------------------------------------------------------------
+# Concurrency
+# ---------------------------------------------------------------------------
+
+
+def _raw_connect():
+    """Open a raw psycopg connection to the test database."""
+    db = settings.DATABASES["default"]
+    return psycopg.connect(
+        dbname=db["NAME"],
+        user=db["USER"],
+        password=db["PASSWORD"],
+        host=db["HOST"],
+        port=db["PORT"] or 5432,
+        autocommit=False,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestUniqueConstraintTriggerConcurrency:
+    """Verify that concurrent inserts of the same value into two tables
+    result in exactly one success — the loser gets an IntegrityError."""
+
+    @pytest.mark.xfail(
+        reason=(
+            "Known race condition: both deferred triggers fire during their "
+            "respective COMMIT and neither sees the other's uncommitted row. "
+            "Needs advisory locks or SERIALIZABLE isolation to fix. See #3."
+        ),
+        strict=True,
+    )
+    def test_concurrent_cross_table_insert(self):
+        """Two threads insert the same slug into Page and Post.
+
+        A threading.Barrier synchronises so both have INSERTed before
+        either COMMITs.  With the current implementation both commits
+        succeed because each trigger's SELECT runs before the other
+        transaction has committed (phantom-read gap).
+
+        When this is fixed, exactly one commit should succeed.
+        """
+        results: list[str | None] = [None, None]
+        barrier = threading.Barrier(2, timeout=5)
+
+        def do_insert(table: str, idx: int) -> None:
+            conn = _raw_connect()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(f"INSERT INTO testapp_{table} (slug) VALUES ('race-slug')")
+                barrier.wait()  # both have inserted, now commit ~simultaneously
+                conn.commit()
+                results[idx] = "ok"
+            except Exception as e:  # noqa: BLE001
+                results[idx] = type(e).__name__
+                conn.rollback()
+            finally:
+                conn.close()
+
+        threads = [
+            threading.Thread(target=do_insert, args=("page", 0)),
+            threading.Thread(target=do_insert, args=("post", 1)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        ok_count = results.count("ok")
+        assert ok_count == 1, f"Expected exactly 1 success but got {results}"
