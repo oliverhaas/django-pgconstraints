@@ -250,23 +250,12 @@ class TestUniqueConstraintTriggerConcurrency:
     """Verify that concurrent inserts of the same value into two tables
     result in exactly one success — the loser gets an IntegrityError."""
 
-    @pytest.mark.xfail(
-        reason=(
-            "Known race condition: both deferred triggers fire during their "
-            "respective COMMIT and neither sees the other's uncommitted row. "
-            "Needs advisory locks or SERIALIZABLE isolation to fix. See #3."
-        ),
-        strict=False,
-    )
     def test_concurrent_cross_table_insert(self):
-        """Two threads insert the same slug into Page and Post.
+        """Two threads insert the same slug into Page and Post concurrently.
 
         A threading.Barrier synchronises so both have INSERTed before
-        either COMMITs.  With the current implementation both commits
-        succeed because each trigger's SELECT runs before the other
-        transaction has committed (phantom-read gap).
-
-        When this is fixed, exactly one commit should succeed.
+        either COMMITs.  The advisory lock in the trigger serialises the
+        commits — exactly one must succeed, the other gets IntegrityError.
         """
         results: list[str | None] = [None, None]
         barrier = threading.Barrier(2, timeout=5)

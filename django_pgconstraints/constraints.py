@@ -286,7 +286,9 @@ class UniqueConstraintTrigger(BaseConstraint):
         schema_editor.execute(
             f"CREATE OR REPLACE FUNCTION {qn(fn)}() RETURNS TRIGGER AS $body$ "
             f"BEGIN "
-            f"IF NEW.{qn(column)} IS NOT NULL AND EXISTS ("
+            f"IF NEW.{qn(column)} IS NOT NULL THEN "
+            f"PERFORM pg_advisory_xact_lock(hashtext(NEW.{qn(column)}::text)); "
+            f"IF EXISTS ("
             f"SELECT 1 FROM {qn(across_table)} "
             f"WHERE {qn(across_column)} = NEW.{qn(column)} "
             f"FOR UPDATE"
@@ -294,6 +296,7 @@ class UniqueConstraintTrigger(BaseConstraint):
             f"RAISE EXCEPTION "
             f"'Cross-table unique constraint \"%%s\" is violated.', '{self.name}' "
             f"USING ERRCODE = '23505', CONSTRAINT = '{self.name}'; "
+            f"END IF; "
             f"END IF; "
             f"RETURN NEW; "
             f"END; $body$ LANGUAGE plpgsql",
