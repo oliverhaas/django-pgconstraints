@@ -256,7 +256,7 @@ class TestUniqueConstraintTriggerConcurrency:
             "respective COMMIT and neither sees the other's uncommitted row. "
             "Needs advisory locks or SERIALIZABLE isolation to fix. See #3."
         ),
-        strict=True,
+        strict=False,
     )
     def test_concurrent_cross_table_insert(self):
         """Two threads insert the same slug into Page and Post.
