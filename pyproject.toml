@@ -85,6 +85,7 @@ ignore = ["COM812", "D", "E501", "EM", "S608", "TRY003"]
 
 [tool.mypy]
 python_version = "3.12"
+mypy_path = "tests"
 plugins = ["mypy_django_plugin.main"]
 pretty = true
 show_error_codes = true
