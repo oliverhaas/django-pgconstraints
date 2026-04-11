@@ -637,7 +637,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
             for i in range(len(hops) - 1):
                 trigger_model = hops[i].related_model
                 # The FK column on trigger_model that points to the next hop.
-                fk_col_name = hops[i + 1].fk_column  # DB column name for UpdateOf
+                fk_col_name = hops[i + 1].fk_column
                 fk_field_name = hops[i + 1].fk_field_name
                 inter_key = f"{trigger_model._meta.label}.{fk_field_name}"  # noqa: SLF001
                 if inter_key not in seen:
