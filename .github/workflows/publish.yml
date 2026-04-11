@@ -17,10 +17,11 @@ jobs:
         with:
           ref: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref }}
       - uses: astral-sh/setup-uv@v7
-      - run: uv python install 3.12
+      - run: uv python install 3.14
       - run: uv sync --group dev
       - run: uv run ruff check
       - run: uv run ruff format --check
+      - run: uv run mypy django_pgconstraints/
       - run: uv run pytest -n auto
 
   publish:
@@ -36,6 +37,6 @@ jobs:
         with:
           ref: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref }}
       - uses: astral-sh/setup-uv@v7
-      - run: uv python install 3.12
+      - run: uv python install 3.14
       - run: uv build
       - uses: pypa/gh-action-pypi-publish@release/v1

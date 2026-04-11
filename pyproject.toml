@@ -4,25 +4,23 @@ version = "0.1.0a1"
 description = "Declarative PostgreSQL constraint triggers for Django"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 keywords = ["django", "postgresql", "constraints", "triggers"]
 authors = [{ name = "Oliver Haas", email = "ohaas@e1plus.de" }]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Framework :: Django",
-  "Framework :: Django :: 5.2",
+  "Framework :: Django :: 6.0",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
   "Typing :: Typed",
 ]
-dependencies = ["Django>=5.2,<7", "django-pgtrigger>=4.17.0"]
+dependencies = ["Django>=6.0,<7", "django-pgtrigger>=4.17.0"]
 
 [project.urls]
 Homepage = "https://github.com/oliverhaas/django-pgconstraints"
@@ -58,7 +56,7 @@ packages = ["django_pgconstraints"]
 include = ["django_pgconstraints", "LICENSE", "README.md"]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 120
 fix = true
 extend-exclude = ["examples"]
@@ -89,7 +87,7 @@ ignore = ["COM812", "D", "E501", "EM", "S608", "TRY003"]
 ]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 mypy_path = "tests"
 plugins = ["mypy_django_plugin.main"]
 pretty = true
