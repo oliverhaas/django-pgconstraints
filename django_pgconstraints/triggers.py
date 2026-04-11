@@ -12,7 +12,7 @@ from django.db import DEFAULT_DB_ALIAS, connection
 from django.db.models import Deferrable
 from django.db.models.sql import Query
 
-from django_pgconstraints.sql import _check_q_to_sql, _q_to_sql, _resolve_field_ref
+from django_pgconstraints.sql import _compile_q, _resolve_field_ref
 
 if TYPE_CHECKING:
     from django.db.models import Model, Q
@@ -192,7 +192,7 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         # Condition guard (partial unique)
         condition_sql = ""
         if self.unique_condition is not None:
-            condition_sql = _q_to_sql(self.unique_condition, model, qn, row_ref="NEW")  # type: ignore[arg-type]
+            condition_sql = _compile_q(self.unique_condition, model, qn, row_ref="NEW")  # type: ignore[arg-type]
 
         cond_open = f"IF {condition_sql} THEN " if condition_sql else ""
         cond_close = "END IF; " if condition_sql else ""
@@ -301,7 +301,7 @@ class CheckConstraintTrigger(pgtrigger.Trigger):
 
     def get_func(self, model: Model) -> str:
         qn = pgtrigger.utils.quote
-        check_sql = _check_q_to_sql(self.check_condition, model, qn)  # type: ignore[arg-type]
+        check_sql = _compile_q(self.check_condition, model, qn, row_ref="NEW")  # type: ignore[arg-type]
 
         return self.format_sql(f"""
             IF NOT ({check_sql}) THEN

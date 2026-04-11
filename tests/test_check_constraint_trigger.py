@@ -202,6 +202,110 @@ def test_dynamic_and_condition():
 
 
 # ---------------------------------------------------------------------------
+# Rich lookups (proof that Django's full lookup machinery is wired up)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lookup_range():
+    trigger = CheckConstraintTrigger(
+        condition=Q(quantity__range=(1, 10)),
+        name="orderline_qty_range_lookup",
+    )
+    with swap_trigger(OrderLine, trigger, index=1):
+        product = ProductFactory.create(stock=1000)
+        OrderLineFactory.create(product=product, quantity=1)
+        OrderLineFactory.create(product=product, quantity=10)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=product, quantity=11)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lookup_in_values():
+    trigger = CheckConstraintTrigger(
+        condition=Q(quantity__in=[1, 3, 5]),
+        name="orderline_qty_in_set",
+    )
+    with swap_trigger(OrderLine, trigger, index=1):
+        product = ProductFactory.create(stock=100)
+        OrderLineFactory.create(product=product, quantity=3)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=product, quantity=2)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lookup_fk_startswith():
+    """FK-traversed CharField + string lookup — product__name__startswith."""
+    trigger = CheckConstraintTrigger(
+        condition=Q(product__name__startswith="Widget"),
+        name="orderline_product_name_starts_widget",
+    )
+    with swap_trigger(OrderLine, trigger, index=1):
+        ok = ProductFactory.create(name="Widget Deluxe", stock=100)
+        bad = ProductFactory.create(name="Gadget", stock=100)
+        OrderLineFactory.create(product=ok, quantity=1)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=bad, quantity=1)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lookup_fk_iexact():
+    trigger = CheckConstraintTrigger(
+        condition=Q(product__name__iexact="widget"),
+        name="orderline_product_name_iexact",
+    )
+    with swap_trigger(OrderLine, trigger, index=1):
+        ok = ProductFactory.create(name="WIDGET", stock=100)
+        bad = ProductFactory.create(name="Gadget", stock=100)
+        OrderLineFactory.create(product=ok, quantity=1)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=bad, quantity=1)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lookup_fk_icontains():
+    trigger = CheckConstraintTrigger(
+        condition=Q(product__name__icontains="widget"),
+        name="orderline_product_name_icontains",
+    )
+    with swap_trigger(OrderLine, trigger, index=1):
+        ok = ProductFactory.create(name="Super-WIDGET-Pro", stock=100)
+        bad = ProductFactory.create(name="Gadget", stock=100)
+        OrderLineFactory.create(product=ok, quantity=1)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=bad, quantity=1)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lookup_fk_regex():
+    trigger = CheckConstraintTrigger(
+        condition=Q(product__name__regex=r"^[A-Z][a-z]+$"),
+        name="orderline_product_name_regex",
+    )
+    with swap_trigger(OrderLine, trigger, index=1):
+        ok = ProductFactory.create(name="Widget", stock=100)
+        bad = ProductFactory.create(name="WIDGET-pro", stock=100)
+        OrderLineFactory.create(product=ok, quantity=1)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=bad, quantity=1)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lookup_decimal_value_preserves_precision():
+    """Decimal comparisons — proves Django's field-aware prep_value is called."""
+    trigger = CheckConstraintTrigger(
+        condition=Q(product__stock__gte=1),
+        name="orderline_product_stock_gte_one",
+    )
+    with swap_trigger(OrderLine, trigger, index=0):
+        big = ProductFactory.create(stock=5)
+        zero = ProductFactory.create(stock=0)
+        OrderLineFactory.create(product=big, quantity=1)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=zero, quantity=1)
+
+
+# ---------------------------------------------------------------------------
 # Construction (pure Python, no DB)
 # ---------------------------------------------------------------------------
 
