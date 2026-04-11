@@ -648,13 +648,21 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
 
     Trigger-based replacement for Django's ``GeneratedField`` that fires
     ``BEFORE INSERT OR UPDATE`` and sets ``NEW.<field>`` to the resolved
-    expression value.
+    expression value.  Supports FK-traversal via ``__`` notation
+    (e.g. ``F("product__price")``) and automatically creates reverse
+    triggers on related models to recompute when referenced data changes.
 
-    For FK-traversal expressions, automatically creates reverse triggers
-    on related models to recompute the field when the referenced data changes.
+    **Important differences from GeneratedField:**
 
-    Use ``GeneratedFieldTrigger.triggers()`` to get all triggers (forward +
-    reverse) for use in ``Meta.triggers``.
+    - The target field must be defined manually on the model (e.g.
+      ``total = models.DecimalField(default=0)``). There is no
+      ``output_field`` parameter.
+    - The field is **read-only by convention**: any manual write (via ORM
+      or raw SQL) is silently overwritten by the trigger on the next
+      INSERT or UPDATE.  The computed value always wins.
+    - After creating or updating an instance, call ``instance.refresh_from_db()``
+      to see the computed value.  The in-memory Python object is not
+      automatically updated by the PostgreSQL trigger.
     """
 
     when = pgtrigger.Before

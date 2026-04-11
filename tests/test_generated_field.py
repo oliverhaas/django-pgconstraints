@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 import pytest
+from django.db import connection
 from django.db.models import F
 from testapp.models import LineItem, Part, PurchaseItem, Supplier
 
@@ -43,6 +44,26 @@ class TestSameRowExpression:
         )
         item.refresh_from_db()
         assert item.total == Decimal("30.00")
+
+    def test_manual_update_overridden(self):
+        """Manually setting the field on UPDATE is also overwritten by the trigger."""
+        item = LineItem.objects.create(description="Widget", price=Decimal("10.00"), quantity=3)
+        item.total = Decimal("999.00")
+        item.save()
+        item.refresh_from_db()
+        assert item.total == Decimal("30.00")
+
+    def test_raw_sql_update_overridden(self):
+        """Even raw SQL UPDATEs to the field are overwritten if other cols change too."""
+        item = LineItem.objects.create(description="Widget", price=Decimal("10.00"), quantity=3)
+        # Raw UPDATE that sets total to 999 but also changes quantity.
+        with connection.cursor() as cur:
+            cur.execute(
+                'UPDATE testapp_lineitem SET "total" = 999, "quantity" = 5 WHERE id = %s',
+                [item.pk],
+            )
+        item.refresh_from_db()
+        assert item.total == Decimal("50.00")  # trigger recomputed: 10 * 5
 
     def test_multiple_inserts(self):
         LineItem.objects.create(description="A", price=Decimal("5.00"), quantity=2)
