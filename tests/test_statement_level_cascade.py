@@ -14,7 +14,9 @@ from factories import (
     PurchaseItemFactory,
     SupplierFactory,
 )
-from testapp.models import Part, Supplier
+from testapp.models import Part, PurchaseItem, Supplier
+
+from django_pgconstraints import GeneratedFieldTrigger
 
 D = Decimal
 
@@ -57,6 +59,9 @@ def test_bulk_update_only_changed_rows_cascade():
     """
     s1 = SupplierFactory.create(markup_pct=10)
     s2 = SupplierFactory.create(markup_pct=99)  # will be re-set to 99 -> no-op
+    # Precondition: s2's markup_pct already equals the no-op target so that
+    # the CASE clause below is genuinely a no-op for s2 / p2.
+    assert s2.markup_pct == 99
     p1 = PartFactory.create(supplier=s1, base_price=D("100.00"))
     p2 = PartFactory.create(supplier=s2, base_price=D("100.00"))
     p1.refresh_from_db()
@@ -84,7 +89,6 @@ def test_bulk_update_only_changed_rows_cascade():
     assert p1.markup_amount == D("25.00")
     # s2 no-op -> p2 unchanged
     assert p2.markup_amount == initial_p2
-    assert p2.markup_amount != D("99.00") or initial_p2 == D("99.00")  # sanity
 
     with connection.cursor() as cur:
         cur.execute(
@@ -161,6 +165,22 @@ def test_deployed_reverse_trigger_is_statement_level():
     tgtype bit layout (from src/include/catalog/pg_trigger.h):
         bit 0: TRIGGER_TYPE_ROW (1 = row-level, 0 = statement-level)
     """
+    # Collect every reverse trigger Python says should be installed, by
+    # asking GeneratedFieldTrigger.get_reverse_triggers itself. Deriving
+    # the floor from the source of truth means a silent regression that
+    # drops a reverse-trigger site fails this test instead of vacuously
+    # passing on whatever survived.
+    expected_reverse_triggers: list = []
+    for model in (Part, PurchaseItem):
+        for trig in model._meta.triggers:
+            if isinstance(trig, GeneratedFieldTrigger):
+                expected_reverse_triggers.extend(trig.get_reverse_triggers(model))
+
+    assert expected_reverse_triggers, (
+        "test schema must declare at least one reverse trigger; "
+        "if this fails the fixture models lost their GeneratedFieldTrigger FKs"
+    )
+
     with connection.cursor() as cur:
         cur.execute(
             "SELECT c.relname AS tablename, t.tgname, t.tgtype & 1 AS is_row "
@@ -171,9 +191,13 @@ def test_deployed_reverse_trigger_is_statement_level():
         )
         rows = cur.fetchall()
 
-    assert rows, (
-        "no pgtrigger_%_rev_% triggers found in pg_trigger; expected at least one reverse trigger to be installed"
+    assert len(rows) == len(expected_reverse_triggers), (
+        f"expected {len(expected_reverse_triggers)} reverse triggers installed "
+        f"in pg_trigger, got {len(rows)}: {[r[1] for r in rows]}. "
+        "Either get_reverse_triggers silently dropped a site or the _rev_ "
+        "naming convention changed."
     )
+
     for tablename, tgname, is_row in rows:
         assert is_row == 0, (
             f"trigger {tgname} on {tablename} is row-level (tgtype & 1 == 1); "
