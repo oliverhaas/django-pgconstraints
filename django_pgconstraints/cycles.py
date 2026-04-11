@@ -78,10 +78,20 @@ def _add_chain_edges(
     """Add edges for one ``F()`` chain (local or FK-traversed) into the map.
 
     A local reference ``F("price")`` adds one edge
-    ``(model, price) → target``.  A traversed reference
-    ``F("part__supplier__markup_pct")`` adds one edge per hop along the
-    chain plus the leaf edge, so both intermediate-FK reassignment and
-    leaf-value changes produce entries in the graph.
+    ``(model, price) → target``.
+
+    A traversed reference ``F("part__supplier__markup_pct")`` adds one edge
+    per hop along the chain plus the leaf edge, so that *both* reassigning
+    an intermediate FK and changing the leaf value produce entries in the
+    graph.  Concretely the chain produces:
+
+    - ``(PurchaseItem, part) → target``      (FK reassignment on child)
+    - ``(Part, supplier) → target``          (FK reassignment on intermediate)
+    - ``(Supplier, markup_pct) → target``    (leaf value change)
+
+    This mirrors how :meth:`GeneratedFieldTrigger.get_reverse_triggers`
+    installs one reverse trigger per source — each FK hop is a valid cycle
+    entry point because reassigning it cascades a recompute.
     """
     parts = chain.split("__")
     current_model = model

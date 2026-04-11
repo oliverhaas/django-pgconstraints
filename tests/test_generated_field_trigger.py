@@ -350,11 +350,13 @@ def test_gate_noop_save_does_not_recompute_dependents():
     item.refresh_from_db()
     assert item.supplier_markup == 10
 
-    # Snapshot the PurchaseItem update count from pg_stat_user_tables.
-    # A reverse-trigger cascade would show up as extra n_tup_upd rows.
+    # Snapshot the PurchaseItem update count from pg_stat_xact_user_tables
+    # — the transaction-local view.  Plain pg_stat_user_tables only reflects
+    # committed changes, which pytest-django rolls back, so the regular view
+    # would read 0 before and 0 after regardless of whether the cascade ran.
     with connection.cursor() as cur:
         cur.execute(
-            "SELECT n_tup_upd FROM pg_stat_user_tables WHERE relname = 'testapp_purchaseitem'",
+            "SELECT n_tup_upd FROM pg_stat_xact_user_tables WHERE relname = 'testapp_purchaseitem'",
         )
         row = cur.fetchone()
         updates_before = row[0] if row else 0
@@ -364,7 +366,7 @@ def test_gate_noop_save_does_not_recompute_dependents():
 
     with connection.cursor() as cur:
         cur.execute(
-            "SELECT n_tup_upd FROM pg_stat_user_tables WHERE relname = 'testapp_purchaseitem'",
+            "SELECT n_tup_upd FROM pg_stat_xact_user_tables WHERE relname = 'testapp_purchaseitem'",
         )
         row = cur.fetchone()
         updates_after = row[0] if row else 0
@@ -373,6 +375,45 @@ def test_gate_noop_save_does_not_recompute_dependents():
         f"Expected no PurchaseItem updates (supplier_id unchanged), "
         f"but got {updates_after - updates_before} extra update(s). "
         "The IS DISTINCT FROM guard is not preventing the cascade."
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_gate_positive_control_counter_bumps_on_real_change():
+    """Positive control for the n_tup_upd-based gate test.
+
+    If the sibling test fires spuriously or the counter read is unreliable,
+    this test acts as a canary: a REAL supplier change must move the
+    counter by at least one PurchaseItem update.  A zero delta here would
+    mean the stat read is broken, not that the gate works.
+    """
+    s1 = SupplierFactory.create(markup_pct=10)
+    s2 = SupplierFactory.create(markup_pct=42)
+    part = PartFactory.create(supplier=s1, base_price=D("10.00"))
+    PurchaseItemFactory.create(part=part, quantity=1)
+
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT n_tup_upd FROM pg_stat_xact_user_tables WHERE relname = 'testapp_purchaseitem'",
+        )
+        row = cur.fetchone()
+        updates_before = row[0] if row else 0
+
+    # Real change: reassign the FK to a different supplier.
+    part.supplier = s2
+    part.save()
+
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT n_tup_upd FROM pg_stat_xact_user_tables WHERE relname = 'testapp_purchaseitem'",
+        )
+        row = cur.fetchone()
+        updates_after = row[0] if row else 0
+
+    assert updates_after > updates_before, (
+        f"Expected PurchaseItem updates from the supplier reassignment cascade, "
+        f"but the counter stayed at {updates_before}. "
+        "This is a stat-read canary — if it fails, the sibling no-op gate test is unreliable."
     )
 
 

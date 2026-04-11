@@ -38,7 +38,10 @@ class Command(BaseCommand):
         parser.add_argument(
             "target",
             nargs="?",
-            help="app_label.ModelName or app_label.ModelName.field_name",
+            help=(
+                "app_label.ModelName or app_label.ModelName.field_name. "
+                "App labels are case-sensitive; model names are not."
+            ),
         )
         parser.add_argument(
             "--all",
