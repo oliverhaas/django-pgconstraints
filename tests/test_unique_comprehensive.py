@@ -55,6 +55,21 @@ class TestSimpleNonDeferred:
         Page.objects.create(slug=None)
         Page.objects.create(slug=None)
 
+    def test_error_fires_immediately_not_at_commit(self):
+        """Non-deferred trigger rejects the INSERT itself, not at commit."""
+        Page.objects.create(slug="taken")
+        # Use a savepoint so we can continue after the error.
+        with pytest.raises(IntegrityError), transaction.atomic():
+            Page.objects.create(slug="taken")
+        # The outer transaction is still alive — we can keep going.
+        Page.objects.create(slug="other")
+
+    def test_self_update_unrelated_field(self):
+        """Updating an unrelated field doesn't trigger a false positive."""
+        page = Page.objects.create(slug="hello")
+        page.section = "updated"
+        page.save()  # trigger fires on UPDATE, but slug hasn't changed
+
 
 # ---------------------------------------------------------------------------
 # Simple fields, deferred (fires at COMMIT)
@@ -66,6 +81,8 @@ class TestSimpleDeferred:
     """Deferred mode: fires at commit, not at statement time."""
 
     def _install_deferred(self):
+        # Disable the model's non-deferred trigger so it doesn't interfere.
+        Page._meta.triggers[0].uninstall(Page)
         trigger = UniqueConstraintTrigger(
             fields=["slug"],
             deferrable=Deferrable.DEFERRED,
@@ -73,6 +90,10 @@ class TestSimpleDeferred:
         )
         trigger.install(Page)
         return trigger
+
+    def _cleanup(self, trigger):
+        trigger.uninstall(Page)
+        Page._meta.triggers[0].install(Page)
 
     def test_deferred_fires_at_commit(self):
         trigger = self._install_deferred()
@@ -83,7 +104,7 @@ class TestSimpleDeferred:
             with pytest.raises(IntegrityError), transaction.atomic():
                 Page.objects.create(slug="existing")
         finally:
-            trigger.uninstall(Page)
+            self._cleanup(trigger)
 
     def test_deferred_duplicate_insert_blocked(self):
         trigger = self._install_deferred()
@@ -92,7 +113,7 @@ class TestSimpleDeferred:
             with pytest.raises(IntegrityError):
                 Page.objects.create(slug="dup")
         finally:
-            trigger.uninstall(Page)
+            self._cleanup(trigger)
 
     def test_deferred_different_values_allowed(self):
         trigger = self._install_deferred()
@@ -100,7 +121,31 @@ class TestSimpleDeferred:
             Page.objects.create(slug="one")
             Page.objects.create(slug="two")
         finally:
-            trigger.uninstall(Page)
+            self._cleanup(trigger)
+
+    def test_deferred_temporary_dup_then_resolve(self):
+        """Deferred allows temporary duplicates if resolved before commit."""
+        trigger = self._install_deferred()
+        try:
+            page = Page.objects.create(slug="target")
+            with transaction.atomic():
+                # Create a dup — deferred trigger doesn't fire yet.
+                Page.objects.create(slug="target")
+                # Delete the original before commit — conflict resolved.
+                page.delete()
+            # If we get here, the commit succeeded.
+        finally:
+            self._cleanup(trigger)
+
+    def test_deferred_two_inserts_same_tx_conflict(self):
+        """Two inserts of the same value in one transaction — fails at commit."""
+        trigger = self._install_deferred()
+        try:
+            with pytest.raises(IntegrityError), transaction.atomic():  # noqa: PT012
+                Page.objects.create(slug="dup")
+                Page.objects.create(slug="dup")
+        finally:
+            self._cleanup(trigger)
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +210,17 @@ class TestFKTraversalNonDeferred:
         with pytest.raises(IntegrityError):
             chapter_b.save()
 
+    def test_multiple_series_same_publisher_one_name(self):
+        """Many series under one publisher, but only one chapter with a given name."""
+        pub = Publisher.objects.create(name="Pub")
+        series_list = [Series.objects.create(title=f"S{i}", publisher=pub) for i in range(5)]
+        # First chapter in each series with different names — all fine.
+        for i, s in enumerate(series_list):
+            Chapter.objects.create(name=f"Chapter {i}", series=s)
+        # Now try a duplicate name under the same publisher.
+        with pytest.raises(IntegrityError):
+            Chapter.objects.create(name="Chapter 0", series=series_list[4])
+
 
 # ---------------------------------------------------------------------------
 # FK-traversal fields, deferred
@@ -176,6 +232,7 @@ class TestFKTraversalDeferred:
     """FK traversal with deferrable trigger."""
 
     def _install_deferred(self):
+        Chapter._meta.triggers[0].uninstall(Chapter)
         trigger = UniqueConstraintTrigger(
             fields=["name", "series__publisher"],
             deferrable=Deferrable.DEFERRED,
@@ -183,6 +240,10 @@ class TestFKTraversalDeferred:
         )
         trigger.install(Chapter)
         return trigger
+
+    def _cleanup(self, trigger):
+        trigger.uninstall(Chapter)
+        Chapter._meta.triggers[0].install(Chapter)
 
     def test_deferred_fires_at_commit(self):
         trigger = self._install_deferred()
@@ -193,7 +254,7 @@ class TestFKTraversalDeferred:
             with pytest.raises(IntegrityError), transaction.atomic():
                 Chapter.objects.create(name="Ch", series=series)
         finally:
-            trigger.uninstall(Chapter)
+            self._cleanup(trigger)
 
     def test_deferred_different_publisher_allowed(self):
         trigger = self._install_deferred()
@@ -205,7 +266,45 @@ class TestFKTraversalDeferred:
             Chapter.objects.create(name="Intro", series=s_a)
             Chapter.objects.create(name="Intro", series=s_b)
         finally:
-            trigger.uninstall(Chapter)
+            self._cleanup(trigger)
+
+    def test_deferred_checks_final_state(self):
+        """Deferred trigger sees the FK chain at commit time, not insert time.
+
+        If the series's publisher changes between INSERT and COMMIT,
+        the trigger evaluates against the final state and catches the conflict.
+        """
+        trigger = self._install_deferred()
+        try:
+            pub_a = Publisher.objects.create(name="A")
+            pub_b = Publisher.objects.create(name="B")
+            s1 = Series.objects.create(title="S1", publisher=pub_a)
+            s2 = Series.objects.create(title="S2", publisher=pub_b)
+
+            Chapter.objects.create(name="Intro", series=s1)  # publisher A
+
+            with pytest.raises(IntegrityError), transaction.atomic():  # noqa: PT012
+                Chapter.objects.create(name="Intro", series=s2)
+                s2.publisher = pub_a
+                s2.save()
+            # The deferred trigger fires at commit, resolves the FK chain,
+            # sees s2 now has publisher A, and correctly raises IntegrityError.
+        finally:
+            self._cleanup(trigger)
+
+    def test_deferred_temporary_dup_then_resolve_via_delete(self):
+        """Deferred allows temporary duplicates if original is deleted before commit."""
+        trigger = self._install_deferred()
+        try:
+            pub = Publisher.objects.create(name="Pub")
+            series = Series.objects.create(title="S", publisher=pub)
+            ch = Chapter.objects.create(name="Intro", series=series)
+            with transaction.atomic():
+                Chapter.objects.create(name="Intro", series=series)  # dup, but deferred
+                ch.delete()  # remove original before commit
+            # Commit succeeds — conflict resolved.
+        finally:
+            self._cleanup(trigger)
 
 
 # ---------------------------------------------------------------------------
