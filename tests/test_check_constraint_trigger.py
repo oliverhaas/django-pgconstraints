@@ -7,11 +7,11 @@ dynamic Q patterns (AND/OR/NOT/F-to-F), construction, and lifecycle.
 from decimal import Decimal
 
 import pytest
-from _trigger_helpers import swap_trigger, trigger_exists
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.db.models import F, Q
-from testapp.factories import OrderLineFactory, ProductFactory
+from factories import OrderLineFactory, ProductFactory
+from helpers import swap_trigger, trigger_exists
 from testapp.models import OrderLine
 
 from django_pgconstraints import CheckConstraintTrigger

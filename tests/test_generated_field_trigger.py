@@ -10,7 +10,7 @@ from decimal import Decimal
 import pytest
 from django.db import connection
 from django.db.models import F
-from testapp.factories import (
+from factories import (
     LineItemFactory,
     PartFactory,
     PurchaseItemFactory,

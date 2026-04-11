@@ -9,18 +9,18 @@ import threading
 
 import psycopg
 import pytest
-from _trigger_helpers import swap_trigger, trigger_exists
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Deferrable, Q
 from django.db.models.functions import Left, Lower
-from testapp.factories import (
+from factories import (
     ChapterFactory,
     PageFactory,
     PublisherFactory,
     SeriesFactory,
 )
+from helpers import swap_trigger, trigger_exists
 from testapp.models import Chapter, Page
 
 from django_pgconstraints import UniqueConstraintTrigger
