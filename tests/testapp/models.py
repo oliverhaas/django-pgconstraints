@@ -131,11 +131,11 @@ class OrderLine(models.Model):
     class Meta:
         triggers = [
             CheckConstraintTrigger(
-                check=Q(quantity__lte=F("product__stock")),
+                condition=Q(quantity__lte=F("product__stock")),
                 name="orderline_qty_lte_stock",
             ),
             CheckConstraintTrigger(
-                check=Q(quantity__gt=0),
+                condition=Q(quantity__gt=0),
                 name="orderline_qty_positive",
             ),
         ]

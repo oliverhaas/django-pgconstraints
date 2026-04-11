@@ -270,35 +270,48 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
 
 
 class CheckConstraintTrigger(pgtrigger.Trigger):
-    """Check constraint supporting FK traversal via Q objects.
+    """Enforce a check condition, with FK-traversal support.
 
-    Raises SQLSTATE 23514 on violation.
+    Drop-in trigger replacement for Django's ``CheckConstraint`` that
+    additionally supports cross-table ``F()`` expressions in the condition
+    (e.g. ``Q(quantity__lte=F("product__stock"))``).
+
+    Uses the same ``condition`` parameter name as Django's ``CheckConstraint``.
+    For same-table conditions, ``validate()`` performs Python-level validation
+    via ``Q.check()``.  FK-traversal conditions skip Python validation and
+    rely on the database trigger.
     """
 
     when = pgtrigger.Before
     operation = pgtrigger.Insert | pgtrigger.Update
 
-    violation_error_code: str = "check_constraint_trigger"
-    violation_error_message: str = "Check constraint is violated."
+    violation_error_code: str | None = None
+    violation_error_message: str = 'Constraint "%(name)s" is violated.'
 
     def __init__(
         self,
         *,
-        check: Q,
+        condition: Q,
         violation_error_code: str | None = None,
         violation_error_message: str | None = None,
         **kwargs: Any,  # noqa: ANN401
     ) -> None:
-        self.check = check
+        if not getattr(condition, "conditional", False):
+            msg = "CheckConstraintTrigger.condition must be a Q instance or boolean expression."
+            raise TypeError(msg)
+        self.check_condition = condition
         if violation_error_code is not None:
             self.violation_error_code = violation_error_code
         if violation_error_message is not None:
             self.violation_error_message = violation_error_message
         super().__init__(**kwargs)
 
+    def get_violation_error_message(self) -> str:
+        return self.violation_error_message % {"name": self.name}
+
     def get_func(self, model: Model) -> str:
         qn = pgtrigger.utils.quote
-        check_sql = _check_q_to_sql(self.check, model, qn)  # type: ignore[arg-type]
+        check_sql = _check_q_to_sql(self.check_condition, model, qn)  # type: ignore[arg-type]
 
         return self.format_sql(f"""
             IF NOT ({check_sql}) THEN
@@ -308,6 +321,53 @@ class CheckConstraintTrigger(pgtrigger.Trigger):
             END IF;
             RETURN NEW;
         """)
+
+    def _has_fk_refs(self) -> bool:
+        """Check if condition contains FK-traversal F() references."""
+        from django.db.models import F as DjangoF  # noqa: PLC0415
+        from django.db.models import Q as DjangoQ  # noqa: PLC0415
+
+        def _walk(node: Any) -> bool:  # noqa: ANN401
+            if isinstance(node, DjangoF):
+                return "__" in node.name  # type: ignore[attr-defined]
+            if isinstance(node, DjangoQ):
+                for child in node.children:
+                    if isinstance(child, (DjangoQ, DjangoF)):
+                        if _walk(child):
+                            return True
+                    elif isinstance(child, tuple) and len(child) == 2:  # noqa: PLR2004
+                        _, value = child
+                        if isinstance(value, DjangoF) and "__" in value.name:  # type: ignore[attr-defined]
+                            return True
+            return False
+
+        return _walk(self.check_condition)
+
+    def validate(
+        self,
+        model: type[Model],
+        instance: Model,
+        exclude: set[str] | None = None,
+        using: str = DEFAULT_DB_ALIAS,
+    ) -> None:
+        """Python-level validation, compatible with Django's full_clean().
+
+        For same-table conditions, uses ``Q.check()`` against instance field
+        values.  FK-traversal conditions are skipped (trigger is primary
+        enforcement).
+        """
+        if self._has_fk_refs():
+            return
+
+        from django.db.models import Q as DjangoQ  # noqa: PLC0415
+
+        against = instance._get_field_expression_map(meta=model._meta, exclude=exclude)  # type: ignore[attr-defined]  # noqa: SLF001
+
+        if not DjangoQ(self.check_condition).check(against, using=using):
+            raise ValidationError(
+                self.get_violation_error_message(),
+                code=self.violation_error_code,
+            )
 
 
 # ======================================================================
