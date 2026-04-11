@@ -118,3 +118,15 @@ def test_check_for_cycles_fake_cyclic_specs_raises():
     message = str(exc_info.value)
     assert "testapp.LineItem.total" in message
     assert "testapp.LineItem.slug" in message
+
+
+# ---------------------------------------------------------------------------
+# Public export
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_cycle_error_is_exported_from_package_root():
+    from django_pgconstraints import CycleError as ExportedCycleError  # noqa: PLC0415
+
+    assert ExportedCycleError is CycleError

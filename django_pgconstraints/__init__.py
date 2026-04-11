@@ -1,5 +1,6 @@
 """Declarative PostgreSQL constraint triggers for Django."""
 
+from django_pgconstraints.cycles import CycleError
 from django_pgconstraints.triggers import (
     CheckConstraintTrigger,
     GeneratedFieldTrigger,
@@ -8,6 +9,7 @@ from django_pgconstraints.triggers import (
 
 __all__ = [
     "CheckConstraintTrigger",
+    "CycleError",
     "GeneratedFieldTrigger",
     "UniqueConstraintTrigger",
 ]

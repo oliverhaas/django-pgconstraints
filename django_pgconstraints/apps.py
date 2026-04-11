@@ -15,20 +15,29 @@ class PgConstraintsConfig(AppConfig):
     name = "django_pgconstraints"
 
     def ready(self) -> None:
-        _register_reverse_triggers()
+        _check_and_register_reverse_triggers()
 
 
-def _register_reverse_triggers() -> None:
-    """Scan all models for GeneratedFieldTrigger and register reverse triggers."""
+def _check_and_register_reverse_triggers() -> None:
+    """Scan every model for GeneratedFieldTrigger instances, run the cycle
+    check, then register reverse triggers on related models."""
     from django.apps import apps  # noqa: PLC0415
 
+    from django_pgconstraints.cycles import check_for_cycles  # noqa: PLC0415
     from django_pgconstraints.triggers import GeneratedFieldTrigger  # noqa: PLC0415
 
-    for model in apps.get_models():
-        for trigger in getattr(model._meta, "triggers", []):  # noqa: SLF001
-            if isinstance(trigger, GeneratedFieldTrigger):
-                for related_model, reverse_trigger in trigger.get_reverse_triggers(model):
-                    reverse_trigger.register(related_model)  # type: ignore[arg-type]
+    specs: list[tuple[type, GeneratedFieldTrigger]] = [
+        (model, trigger)
+        for model in apps.get_models()
+        for trigger in getattr(model._meta, "triggers", [])  # noqa: SLF001
+        if isinstance(trigger, GeneratedFieldTrigger)
+    ]
+
+    check_for_cycles(specs)
+
+    for model, trigger in specs:
+        for related_model, reverse_trigger in trigger.get_reverse_triggers(model):
+            reverse_trigger.register(related_model)  # type: ignore[arg-type]
 
 
 @register(Tags.models)
