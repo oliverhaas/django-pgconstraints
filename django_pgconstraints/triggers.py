@@ -8,6 +8,7 @@ import pgtrigger
 import pgtrigger.utils
 from django.core.exceptions import ValidationError
 from django.db import DEFAULT_DB_ALIAS
+from django.db.models import Deferrable
 
 from django_pgconstraints.sql import _check_q_to_sql, _q_to_sql, _sql_value
 
@@ -31,8 +32,8 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
     the other.  Without ``across``, it enforces uniqueness within the
     same table (like ``UniqueConstraint``).
 
-    Set ``deferrable=True`` for a constraint trigger that fires at commit
-    time (default ``False`` — fires immediately like ``UniqueConstraint``).
+    Set ``deferrable=Deferrable.DEFERRED`` for a constraint trigger that
+    fires at commit time (default ``None`` — fires immediately).
     """
 
     when = pgtrigger.After
@@ -48,7 +49,7 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         across: str | None = None,
         across_field: str | None = None,
         condition: Q | None = None,
-        deferrable: bool = False,
+        deferrable: Deferrable | None = None,
         nulls_distinct: bool | None = None,
         violation_error_code: str | None = None,
         violation_error_message: str | None = None,
@@ -69,8 +70,10 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         if violation_error_message is not None:
             self.violation_error_message = violation_error_message
 
-        if deferrable:
+        if deferrable == Deferrable.DEFERRED:
             kwargs.setdefault("timing", pgtrigger.Deferred)
+        elif deferrable == Deferrable.IMMEDIATE:
+            kwargs.setdefault("timing", pgtrigger.Immediate)
 
         super().__init__(**kwargs)
 

@@ -20,7 +20,7 @@ class Page(models.Model):
             UniqueConstraintTrigger(
                 fields=["slug"],
                 across="testapp.Post",
-                deferrable=True,
+                deferrable=models.Deferrable.DEFERRED,
                 name="page_unique_slug_across_post",
             ),
         ]
@@ -34,7 +34,7 @@ class Post(models.Model):
             UniqueConstraintTrigger(
                 fields=["slug"],
                 across="testapp.Page",
-                deferrable=True,
+                deferrable=models.Deferrable.DEFERRED,
                 name="post_unique_slug_across_page",
             ),
         ]
