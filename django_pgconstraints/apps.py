@@ -40,7 +40,7 @@ def check_triggers_not_in_constraints(**kwargs: Any) -> list[CheckMessage]:  # n
     return [
         Error(
             f"{constraint.__class__.__name__} belongs in Meta.triggers, not Meta.constraints.",
-            hint="Move it from Meta.constraints to Meta.triggers. See django-pgtrigger docs.",
+            hint="See django-pgtrigger docs for Meta.triggers usage.",
             obj=model,
             id="pgconstraints.E001",
         )
