@@ -51,9 +51,10 @@ def _compile_expression(expr: BaseExpression, model: type[Model], row_ref: str =
         sql = sql % tuple(compiler.connection.schema_editor().quote_value(p) for p in params)
 
     # Prefix bare column references with the row reference.
-    for field in model._meta.fields:  # noqa: SLF001
-        quoted_col = f'"{field.column}"'
-        sql = sql.replace(quoted_col, f"{row_ref}.{quoted_col}")
+    if row_ref:
+        for field in model._meta.fields:  # noqa: SLF001
+            quoted_col = f'"{field.column}"'
+            sql = sql.replace(quoted_col, f"{row_ref}.{quoted_col}")
 
     # Restore FK-traversal subqueries (which already have correct refs).
     for placeholder, resolved_sql in placeholders.items():
@@ -123,6 +124,7 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         condition: Q | None = None,
         deferrable: Deferrable | None = None,
         nulls_distinct: bool | None = None,
+        index: bool = False,
         violation_error_code: str | None = None,
         violation_error_message: str | None = None,
         **kwargs: Any,  # noqa: ANN401
@@ -137,10 +139,14 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
             msg = "UniqueConstraintTrigger with expressions cannot be deferred."
             raise ValueError(msg)
 
+        if index:
+            self._validate_indexable(fields, expressions, deferrable)
+
         self.fields = list(fields)
         self.expressions = list(expressions)
         self.unique_condition = condition
         self.nulls_distinct = nulls_distinct
+        self.index = index
 
         if violation_error_code is not None:
             self.violation_error_code = violation_error_code
@@ -153,6 +159,55 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
             kwargs.setdefault("timing", pgtrigger.Immediate)
 
         super().__init__(**kwargs)
+
+    @staticmethod
+    def _validate_indexable(
+        fields: list[str] | tuple[str, ...],
+        expressions: tuple[BaseExpression, ...],
+        deferrable: Deferrable | None,
+    ) -> None:
+        """Raise ValueError if the config cannot be backed by a CREATE UNIQUE INDEX.
+
+        Index backing requires all column references to live on the trigger's
+        own table — FK traversal requires a subquery, which PG cannot put
+        into a unique index. Deferred unique indexes are not supported at
+        all by PG.
+        """
+        if deferrable == Deferrable.DEFERRED:
+            msg = (
+                "UniqueConstraintTrigger(index=True) cannot be combined with "
+                "deferrable=Deferrable.DEFERRED: PostgreSQL unique indexes "
+                "cannot be deferred. Use index=False to keep the trigger-only path."
+            )
+            raise ValueError(msg)
+
+        for chain in fields:
+            if "__" in chain:
+                msg = (
+                    f"UniqueConstraintTrigger(index=True) cannot be combined with "
+                    f"FK traversal in fields: {chain!r} contains '__'. "
+                    f"Unique indexes only support same-table columns."
+                )
+                raise ValueError(msg)
+
+        # Check expressions for FK-traversal F() references.
+        from django.db.models import F as DjangoF  # noqa: PLC0415
+
+        def _has_fk_traversal(expr: Any) -> bool:  # noqa: ANN401
+            if isinstance(expr, DjangoF) and "__" in expr.name:  # type: ignore[attr-defined]
+                return True
+            if hasattr(expr, "get_source_expressions"):
+                return any(_has_fk_traversal(c) for c in expr.get_source_expressions() if c is not None)
+            return False
+
+        for expr in expressions:
+            if _has_fk_traversal(expr):
+                msg = (
+                    "UniqueConstraintTrigger(index=True) cannot be combined with "
+                    "FK traversal in expressions: an F() reference contains '__'. "
+                    "Unique indexes only support same-table columns."
+                )
+                raise ValueError(msg)
 
     def get_func(self, model: Model) -> str:
         qn = pgtrigger.utils.quote
@@ -255,6 +310,84 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
                 self.violation_error_message,
                 code=self.violation_error_code,
             )
+
+    def install(self, model: Model, database: str | None = None) -> None:
+        """Install the trigger, plus the backing unique index if ``index=True``."""
+        super().install(model, database=database)
+        if self.index:
+            self._install_index(model, database=database)  # type: ignore[arg-type]
+
+    def uninstall(self, model: Model, database: str | None = None) -> None:
+        """Uninstall the trigger, and drop the backing unique index if ``index=True``."""
+        if self.index:
+            self._uninstall_index(model, database=database)  # type: ignore[arg-type]
+        super().uninstall(model, database=database)
+
+    def _index_name(self) -> str:
+        """Derive a deterministic index name from the trigger name.
+
+        PostgreSQL identifiers are limited to 63 bytes; if the trigger name
+        is already long this may collide with the limit. In that case we fall
+        back to hashing the name, similar to how pgtrigger derives stable
+        identifiers for long names.
+        """
+        name = self.name or ""
+        base = f"pgconstraints_idx_{name}"
+        if len(base) <= 63:  # noqa: PLR2004
+            return base
+        import hashlib  # noqa: PLC0415
+
+        digest = hashlib.md5(name.encode(), usedforsecurity=False).hexdigest()[:8]
+        # Truncate the prefix to leave room for the hash suffix.
+        return f"pgconstraints_idx_{name[: 63 - 18 - 9]}_{digest}"
+
+    def _build_index_definition(self, model: type[Model]) -> str:
+        """Build the CREATE UNIQUE INDEX SQL.
+
+        Only called when ``self.index`` is True, which means the config has
+        already been validated as indexable (no FK traversal, no deferred).
+        """
+        qn = pgtrigger.utils.quote
+        table = qn(model._meta.db_table)  # noqa: SLF001
+        idx_name = qn(self._index_name())
+
+        # Columns or expressions
+        if self.fields:
+            cols = ", ".join(
+                qn(model._meta.get_field(f).column)  # type: ignore[union-attr]  # noqa: SLF001
+                for f in self.fields
+            )
+        else:
+            # Expressions compile without a row_ref prefix (index context).
+            cols = ", ".join(_compile_expression(expr, model, row_ref="") for expr in self.expressions)
+
+        nulls_clause = " NULLS NOT DISTINCT" if self.nulls_distinct is False else ""
+
+        where_clause = ""
+        if self.unique_condition is not None:
+            # _compile_q with row_ref="" produces bare column references,
+            # usable as a WHERE clause in a CREATE INDEX.
+            cond_sql = _compile_q(self.unique_condition, model, qn, row_ref="")
+            where_clause = f" WHERE {cond_sql}"
+
+        return f"CREATE UNIQUE INDEX IF NOT EXISTS {idx_name} ON {table} ({cols}){nulls_clause}{where_clause}"
+
+    def _install_index(self, model: type[Model], database: str | None = None) -> None:
+        from django.db import DEFAULT_DB_ALIAS, connections  # noqa: PLC0415
+
+        sql = self._build_index_definition(model)
+        conn = connections[database or DEFAULT_DB_ALIAS]
+        with conn.cursor() as cur:
+            cur.execute(sql)
+
+    def _uninstall_index(self, model: type[Model], database: str | None = None) -> None:  # noqa: ARG002
+        from django.db import DEFAULT_DB_ALIAS, connections  # noqa: PLC0415
+
+        qn = pgtrigger.utils.quote
+        idx_name = qn(self._index_name())
+        conn = connections[database or DEFAULT_DB_ALIAS]
+        with conn.cursor() as cur:
+            cur.execute(f"DROP INDEX IF EXISTS {idx_name}")
 
 
 # ======================================================================

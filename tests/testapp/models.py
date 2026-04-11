@@ -145,3 +145,21 @@ class PurchaseItem(models.Model):
                 name="purchaseitem_supplier_markup",
             ),
         ]
+
+
+# --- UniqueConstraintTrigger: index=True backing models (issue #10) ---
+
+
+class IndexedSlugPage(models.Model):
+    """Plain single-field unique index backing."""
+
+    slug = models.SlugField(unique=False)  # uniqueness enforced by our trigger+index
+
+    class Meta:
+        triggers = [
+            UniqueConstraintTrigger(
+                fields=["slug"],
+                index=True,
+                name="indexedslugpage_slug_unique",
+            ),
+        ]

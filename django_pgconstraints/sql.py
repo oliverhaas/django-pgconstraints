@@ -56,7 +56,7 @@ def _resolve_field_ref(
             fk_column = field.column  # type: ignore[union-attr]
             related_model = field.related_model
             if fk_ref is None:
-                fk_ref = f"{row_ref}.{qn(fk_column)}"
+                fk_ref = f"{row_ref}.{qn(fk_column)}" if row_ref else qn(fk_column)
             else:
                 tbl = qn(current_model._meta.db_table)  # noqa: SLF001
                 pk = qn(current_model._meta.pk.column)  # noqa: SLF001
@@ -66,7 +66,7 @@ def _resolve_field_ref(
             # Concrete field found — remaining parts (if any) are the lookup.
             col = qn(field.column)  # type: ignore[union-attr]
             if fk_ref is None:
-                sql = f"{row_ref}.{col}"
+                sql = f"{row_ref}.{col}" if row_ref else col
             else:
                 tbl = qn(current_model._meta.db_table)  # noqa: SLF001
                 pk = qn(current_model._meta.pk.column)  # noqa: SLF001
@@ -120,7 +120,7 @@ def _resolve_lhs(
             fk_column = field.column  # type: ignore[union-attr]
             related_model = field.related_model
             if fk_ref is None:
-                fk_ref = f"{row_ref}.{qn(fk_column)}"
+                fk_ref = f"{row_ref}.{qn(fk_column)}" if row_ref else qn(fk_column)
             else:
                 tbl = qn(current_model._meta.db_table)  # noqa: SLF001
                 pk = qn(current_model._meta.pk.column)  # noqa: SLF001
@@ -134,7 +134,7 @@ def _resolve_lhs(
 
         col = qn(field.column)  # type: ignore[union-attr]
         if fk_ref is None:
-            sql = f"{row_ref}.{col}"
+            sql = f"{row_ref}.{col}" if row_ref else col
         else:
             tbl = qn(current_model._meta.db_table)  # noqa: SLF001
             pk = qn(current_model._meta.pk.column)  # noqa: SLF001

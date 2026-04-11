@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.apps import AppConfig
 from django.core.checks import Error, Tags, register
+from django.db.models.signals import post_migrate
 
 if TYPE_CHECKING:
     from django.core.checks import CheckMessage
@@ -16,6 +17,36 @@ class PgConstraintsConfig(AppConfig):
 
     def ready(self) -> None:
         _check_and_register_reverse_triggers()
+        # Connect without a sender so we install indexes for models in any
+        # app (e.g. testapp) whenever post_migrate fires.
+        post_migrate.connect(_install_unique_indexes)
+
+
+def _install_unique_indexes(
+    sender: Any = None,  # noqa: ANN401
+    using: str | None = None,
+    **_kwargs: Any,  # noqa: ANN401
+) -> None:
+    """Install CREATE UNIQUE INDEX for every UniqueConstraintTrigger(index=True).
+
+    pgtrigger's schema-editor patch installs the PL/pgSQL trigger when it
+    creates a model's table, but it bypasses our `install()` override. We
+    install the backing index ourselves from a post_migrate signal so that
+    both `migrate` and the pytest-django `--create-db` path end up with the
+    index in place.
+
+    The signal is connected without a sender filter and fires once per app
+    during migrate; we scope the per-app work by filtering the app's own
+    models so we only touch each trigger once per migrate pass.
+    """
+    from django_pgconstraints.triggers import UniqueConstraintTrigger  # noqa: PLC0415
+
+    if sender is None:
+        return
+    for model in sender.get_models():
+        for trigger in getattr(model._meta, "triggers", []):  # noqa: SLF001
+            if isinstance(trigger, UniqueConstraintTrigger) and trigger.index:
+                trigger._install_index(model, database=using)  # noqa: SLF001
 
 
 def _check_and_register_reverse_triggers() -> None:
