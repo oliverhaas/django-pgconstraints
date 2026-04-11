@@ -178,12 +178,23 @@ class Part(models.Model):
     name = models.CharField(max_length=100)
     supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE)
     base_price = models.DecimalField(max_digits=10, decimal_places=2)
+    markup_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    class Meta:
+        triggers = [
+            GeneratedFieldTrigger(
+                field="markup_amount",
+                expression=F("base_price") * F("supplier__markup_pct") / 100,
+                name="part_markup_amount",
+            ),
+        ]
 
 
 class PurchaseItem(models.Model):
     part = models.ForeignKey(Part, on_delete=models.CASCADE)
     quantity = models.IntegerField()
     line_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    supplier_markup = models.IntegerField(default=0)
 
     class Meta:
         triggers = [
@@ -191,5 +202,10 @@ class PurchaseItem(models.Model):
                 field="line_total",
                 expression=F("quantity") * F("part__base_price"),
                 name="purchaseitem_line_total",
+            ),
+            GeneratedFieldTrigger(
+                field="supplier_markup",
+                expression=F("part__supplier__markup_pct"),
+                name="purchaseitem_supplier_markup",
             ),
         ]

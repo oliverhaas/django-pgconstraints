@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import pgtrigger
@@ -520,33 +521,46 @@ def _find_fk_refs(expr: BaseExpression) -> list[str]:
     return refs
 
 
-def _parse_fk_chain(
-    chain: str,
-    model: type[Model],
-) -> tuple[type[Model], str, str]:
-    """Parse an FK chain and return (related_model, fk_field_on_child, target_field).
+@dataclass
+class _FKHop:
+    """One hop in an FK chain."""
 
-    For ``"part__base_price"`` on PurchaseItem:
-    - related_model = Part
-    - fk_field_on_child = "part" (the FK field name on PurchaseItem)
-    - target_field = "base_price" (the field on Part)
+    fk_field_name: str  # field name on the current model (e.g. "part")
+    fk_column: str  # DB column name (e.g. "part_id")
+    related_model: type[Model]  # the model on the other end
 
-    Only supports single-hop FK chains for now.
+
+def _parse_fk_chain(chain: str, model: type[Model]) -> tuple[list[_FKHop], str]:
+    """Parse an FK chain into hops and the leaf field name.
+
+    For ``"part__supplier__markup_pct"`` on PurchaseItem returns:
+    - hops = [_FKHop("part", "part_id", Part), _FKHop("supplier", "supplier_id", Supplier)]
+    - leaf_field = "markup_pct"
     """
     parts = chain.split("__")
-    if len(parts) != 2:  # noqa: PLR2004
-        msg = f"Reverse triggers only support single-hop FK chains, got '{chain}'"
-        raise ValueError(msg)
+    hops: list[_FKHop] = []
+    current_model = model
 
-    fk_field_name, target_field_name = parts
-    fk_field = model._meta.get_field(fk_field_name)  # noqa: SLF001
-    related_model = fk_field.related_model
+    for part in parts[:-1]:
+        fk_field = current_model._meta.get_field(part)  # noqa: SLF001
+        hops.append(
+            _FKHop(
+                fk_field_name=part,
+                fk_column=fk_field.column,  # type: ignore[union-attr]
+                related_model=fk_field.related_model,  # type: ignore[arg-type]
+            ),
+        )
+        current_model = fk_field.related_model  # type: ignore[assignment]
 
-    return related_model, fk_field_name, target_field_name  # type: ignore[return-value]
+    return hops, parts[-1]
 
 
 class _GeneratedFieldReverse(pgtrigger.Trigger):
-    """AFTER UPDATE trigger on a related model that recomputes the child's generated field."""
+    """AFTER UPDATE trigger on a related model that recomputes the child's generated field.
+
+    Handles arbitrary-depth FK chains by building nested subqueries
+    to find affected child rows.
+    """
 
     when = pgtrigger.After
 
@@ -555,18 +569,19 @@ class _GeneratedFieldReverse(pgtrigger.Trigger):
         *,
         child_model_label: str,
         child_field: str,
-        child_fk_column: str,
         expression: BaseExpression,
-        target_field: str,
+        trigger_field: str,
+        # The FK chain from child model to the trigger model, used to build
+        # the WHERE clause that finds affected child rows.
+        chain_back: list[dict[str, str]],
         **kwargs: Any,  # noqa: ANN401
     ) -> None:
         self.child_model_label = child_model_label
         self.child_field = child_field
-        self.child_fk_column = child_fk_column
         self.expression = expression
-        self.target_field = target_field
-        # Only fire when the referenced field changes.
-        kwargs.setdefault("operation", pgtrigger.UpdateOf(target_field))
+        self.trigger_field = trigger_field
+        self.chain_back = chain_back
+        kwargs.setdefault("operation", pgtrigger.UpdateOf(trigger_field))
         super().__init__(**kwargs)
 
     def get_func(self, model: Model) -> str:
@@ -577,33 +592,55 @@ class _GeneratedFieldReverse(pgtrigger.Trigger):
         child_model = apps.get_model(self.child_model_label)
         child_table = qn(child_model._meta.db_table)  # noqa: SLF001
         child_target_col = qn(child_model._meta.get_field(self.child_field).column)  # noqa: SLF001
-        child_fk_col = qn(self.child_fk_column)
-        related_pk_col = qn(model._meta.pk.column)  # noqa: SLF001
+        trigger_pk_col = qn(model._meta.pk.column)  # noqa: SLF001
 
-        # Compile expression for the UPDATE context:
-        # - Local child fields → child_table."column"
-        # - FK-traversed fields (the related model) → NEW."column"
+        # Compile expression for the UPDATE context (local fields use table name as ref).
         expr_sql = _compile_expression(self.expression, child_model, row_ref=child_table)
 
-        # In the compiled SQL, the FK-resolved subquery will look like:
-        #   (SELECT "base_price" FROM testapp_part WHERE "id" = child_table."part_id")
-        # But we're ON the Part table, so we can use NEW directly.
-        # Replace the subquery with NEW."target_field_column".
-        target_col = qn(model._meta.get_field(self.target_field).column)  # type: ignore[union-attr]  # noqa: SLF001
-        # The subquery pattern from _resolve_field_ref for single-hop:
-        #   (SELECT "target_col" FROM "related_table" WHERE "pk" = child_table."fk_col")
-        related_table = qn(model._meta.db_table)  # noqa: SLF001
-        subquery_pattern = (
-            f"(SELECT {target_col} FROM {related_table} WHERE {related_pk_col} = {child_table}.{child_fk_col})"
-        )
-        expr_sql = expr_sql.replace(subquery_pattern, f"NEW.{target_col}")
+        # Build WHERE clause: trace FK chain back from child to trigger model.
+        # For single-hop (chain_back=[{fk_col, related_table, related_pk}]):
+        #   WHERE "part_id" = NEW."id"
+        # For 2-hop (chain_back=[{...child→Part}, {...Part→Supplier}]):
+        #   WHERE "part_id" IN (SELECT "id" FROM "testapp_part" WHERE "supplier_id" = NEW."id")
+        where = self._build_where_back(qn, trigger_pk_col)
 
         return self.format_sql(f"""
             UPDATE {child_table}
             SET {child_target_col} = {expr_sql}
-            WHERE {child_fk_col} = NEW.{related_pk_col};
+            WHERE {where};
             RETURN NEW;
         """)
+
+    def _build_where_back(self, qn: Any, trigger_pk_col: str) -> str:  # noqa: ANN401
+        """Build WHERE clause tracing from child table back to trigger model.
+
+        chain_back is ordered from child→...→trigger_model.
+        Each entry: {fk_col (on this table), table (this model's table), pk (this model's PK)}.
+
+        For single-hop [{fk_col=part_id, table=purchaseitem, pk=id}]:
+          → "part_id" = NEW."id"
+
+        For 2-hop [{fk_col=part_id, table=purchaseitem, pk=id},
+                   {fk_col=supplier_id, table=part, pk=id}]:
+          → "part_id" IN (SELECT "id" FROM "testapp_part" WHERE "supplier_id" = NEW."id")
+        """
+        if len(self.chain_back) == 1:
+            hop = self.chain_back[0]
+            return f"{qn(hop['fk_col'])} = NEW.{trigger_pk_col}"
+
+        # Multi-hop: build nested IN subqueries.
+        # Start from the innermost (closest to trigger model) and work outward.
+        # The innermost query: SELECT pk FROM table WHERE fk_col = NEW.pk
+        last = self.chain_back[-1]
+        inner = f"SELECT {qn(last['pk'])} FROM {qn(last['table'])} WHERE {qn(last['fk_col'])} = NEW.{trigger_pk_col}"
+
+        # Intermediate hops (walking outward toward child).
+        for hop in reversed(self.chain_back[1:-1]):
+            inner = f"SELECT {qn(hop['pk'])} FROM {qn(hop['table'])} WHERE {qn(hop['fk_col'])} IN ({inner})"
+
+        # Outermost: the child table's FK column.
+        first = self.chain_back[0]
+        return f"{qn(first['fk_col'])} IN ({inner})"
 
 
 class GeneratedFieldTrigger(pgtrigger.Trigger):
@@ -646,34 +683,80 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
         """)
 
     def get_reverse_triggers(self, model: type[Model]) -> list[tuple[type[Model], pgtrigger.Trigger]]:
-        """Return (related_model, trigger) pairs for reverse triggers."""
+        """Return (related_model, trigger) pairs for reverse triggers.
+
+        For each FK chain in the expression, creates reverse triggers on:
+        1. The leaf model (when the referenced field changes)
+        2. Each intermediate model (when the FK column changes)
+        """
         fk_refs = _find_fk_refs(self.expression)
         if not fk_refs:
             return []
 
         result: list[tuple[type[Model], pgtrigger.Trigger]] = []
         seen: set[str] = set()
+        child_label = model._meta.label  # noqa: SLF001
 
         for chain in fk_refs:
-            related_model, fk_field_name, target_field = _parse_fk_chain(chain, model)
-            # Deduplicate: one reverse trigger per (related_model, target_field).
-            key = f"{related_model._meta.label}.{target_field}"  # noqa: SLF001
-            if key in seen:
-                continue
-            seen.add(key)
+            hops, leaf_field = _parse_fk_chain(chain, model)
 
-            fk_field = model._meta.get_field(fk_field_name)  # noqa: SLF001
-            child_label = model._meta.label  # noqa: SLF001
+            # Build the chain_back data for WHERE clause construction.
+            # Each entry: {fk_col on this model, this model's table, this model's pk}
+            chain_back_all: list[dict[str, str]] = []
+            current = model
+            for hop in hops:
+                chain_back_all.append(
+                    {
+                        "fk_col": hop.fk_column,
+                        "table": current._meta.db_table,  # noqa: SLF001
+                        "pk": current._meta.pk.column,  # noqa: SLF001
+                    },
+                )
+                current = hop.related_model
 
-            trigger = _GeneratedFieldReverse(
-                child_model_label=child_label,
-                child_field=self.field,
-                child_fk_column=fk_field.column,  # type: ignore[union-attr]
-                expression=self.expression,
-                target_field=target_field,
-                name=f"{self.name}_rev_{fk_field_name}",
-            )
-            result.append((related_model, trigger))
+            # 1. Leaf model trigger: fires when the actual field changes.
+            leaf_model = hops[-1].related_model
+            leaf_key = f"{leaf_model._meta.label}.{leaf_field}"  # noqa: SLF001
+            if leaf_key not in seen:
+                seen.add(leaf_key)
+                name_suffix = "__".join(h.fk_field_name for h in hops)
+                result.append(
+                    (
+                        leaf_model,
+                        _GeneratedFieldReverse(
+                            child_model_label=child_label,
+                            child_field=self.field,
+                            expression=self.expression,
+                            trigger_field=leaf_field,
+                            chain_back=chain_back_all,
+                            name=f"{self.name}_rev_{name_suffix}",
+                        ),
+                    ),
+                )
+
+            # 2. Intermediate model triggers: fire when the FK column changes.
+            # E.g. for chain part__supplier__markup_pct, when Part.supplier_id changes.
+            for i in range(len(hops) - 1):
+                trigger_model = hops[i].related_model
+                # The FK column on trigger_model that points to the next hop.
+                fk_col_name = hops[i + 1].fk_column  # DB column name for UpdateOf
+                fk_field_name = hops[i + 1].fk_field_name
+                inter_key = f"{trigger_model._meta.label}.{fk_field_name}"  # noqa: SLF001
+                if inter_key not in seen:
+                    seen.add(inter_key)
+                    result.append(
+                        (
+                            trigger_model,
+                            _GeneratedFieldReverse(
+                                child_model_label=child_label,
+                                child_field=self.field,
+                                expression=self.expression,
+                                trigger_field=fk_col_name,
+                                chain_back=chain_back_all[: i + 1],
+                                name=f"{self.name}_rev_{hops[i].fk_field_name}",
+                            ),
+                        ),
+                    )
 
         return result
 

@@ -8,6 +8,8 @@ from testapp.models import LineItem, Part, PurchaseItem, Supplier
 
 from django_pgconstraints import GeneratedFieldTrigger
 
+D = Decimal  # shorthand
+
 # ---------------------------------------------------------------------------
 # Same-row expression (equivalent to Django's GeneratedField)
 # ---------------------------------------------------------------------------
@@ -170,6 +172,119 @@ class TestFKTraversalExpression:
         )
         totals = PurchaseItem.objects.order_by("part__name").values_list("line_total", flat=True)
         assert list(totals) == [Decimal("25.00"), Decimal("50.00")]
+
+
+# ---------------------------------------------------------------------------
+# Single-hop FK reverse trigger (Part: supplier__markup_pct)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+class TestSingleHopReverse:
+    """Part.markup_amount = base_price * supplier.markup_pct / 100.
+
+    Reverse trigger on Supplier recomputes Part.markup_amount when markup_pct changes.
+    """
+
+    def test_insert_computes(self):
+        supplier = Supplier.objects.create(name="Acme", markup_pct=20)
+        part = Part.objects.create(name="Bolt", supplier=supplier, base_price=D("100.00"))
+        part.refresh_from_db()
+        assert part.markup_amount == D("20.00")
+
+    def test_supplier_markup_change_updates_parts(self):
+        supplier = Supplier.objects.create(name="Acme", markup_pct=10)
+        p1 = Part.objects.create(name="Bolt", supplier=supplier, base_price=D("100.00"))
+        p2 = Part.objects.create(name="Nut", supplier=supplier, base_price=D("50.00"))
+
+        supplier.markup_pct = 25
+        supplier.save()
+
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        assert p1.markup_amount == D("25.00")
+        assert p2.markup_amount == D("12.50")
+
+    def test_supplier_change_only_affects_own_parts(self):
+        s1 = Supplier.objects.create(name="S1", markup_pct=10)
+        s2 = Supplier.objects.create(name="S2", markup_pct=20)
+        p1 = Part.objects.create(name="P1", supplier=s1, base_price=D("100.00"))
+        p2 = Part.objects.create(name="P2", supplier=s2, base_price=D("100.00"))
+
+        s1.markup_pct = 50
+        s1.save()
+
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        assert p1.markup_amount == D("50.00")
+        assert p2.markup_amount == D("20.00")  # unchanged
+
+
+# ---------------------------------------------------------------------------
+# 2-hop FK reverse trigger (PurchaseItem: part__supplier__markup_pct)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+class TestTwoHopReverse:
+    """PurchaseItem.supplier_markup = part.supplier.markup_pct (2-hop chain).
+
+    Reverse triggers needed:
+    1. On Supplier: when markup_pct changes → update PurchaseItems via part
+    2. On Part: when supplier_id changes → update PurchaseItems
+    """
+
+    def test_insert_resolves_2hop(self):
+        supplier = Supplier.objects.create(name="Acme", markup_pct=15)
+        part = Part.objects.create(name="Bolt", supplier=supplier, base_price=D("10.00"))
+        item = PurchaseItem.objects.create(part=part, quantity=1)
+        item.refresh_from_db()
+        assert item.supplier_markup == 15
+
+    def test_supplier_change_propagates_through_part(self):
+        """Changing Supplier.markup_pct updates PurchaseItem.supplier_markup (2-hop reverse)."""
+        supplier = Supplier.objects.create(name="Acme", markup_pct=10)
+        part = Part.objects.create(name="Bolt", supplier=supplier, base_price=D("10.00"))
+        item = PurchaseItem.objects.create(part=part, quantity=5)
+        item.refresh_from_db()
+        assert item.supplier_markup == 10
+
+        supplier.markup_pct = 30
+        supplier.save()
+
+        item.refresh_from_db()
+        assert item.supplier_markup == 30
+
+    def test_part_supplier_reassign_updates_purchaseitem(self):
+        """Changing Part.supplier_id updates PurchaseItem.supplier_markup (intermediate hop)."""
+        s1 = Supplier.objects.create(name="S1", markup_pct=10)
+        s2 = Supplier.objects.create(name="S2", markup_pct=50)
+        part = Part.objects.create(name="Bolt", supplier=s1, base_price=D("10.00"))
+        item = PurchaseItem.objects.create(part=part, quantity=5)
+        item.refresh_from_db()
+        assert item.supplier_markup == 10
+
+        part.supplier = s2
+        part.save()
+
+        item.refresh_from_db()
+        assert item.supplier_markup == 50
+
+    def test_only_affected_items_updated(self):
+        s1 = Supplier.objects.create(name="S1", markup_pct=10)
+        s2 = Supplier.objects.create(name="S2", markup_pct=20)
+        p1 = Part.objects.create(name="P1", supplier=s1, base_price=D("10.00"))
+        p2 = Part.objects.create(name="P2", supplier=s2, base_price=D("10.00"))
+        item1 = PurchaseItem.objects.create(part=p1, quantity=1)
+        item2 = PurchaseItem.objects.create(part=p2, quantity=1)
+
+        s1.markup_pct = 99
+        s1.save()
+
+        item1.refresh_from_db()
+        item2.refresh_from_db()
+        assert item1.supplier_markup == 99
+        assert item2.supplier_markup == 20  # unchanged
 
 
 # ---------------------------------------------------------------------------
