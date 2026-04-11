@@ -41,14 +41,12 @@ def check_triggers_not_in_constraints(**kwargs: Any) -> list[CheckMessage]:  # n
         CheckConstraintTrigger,
         GeneratedFieldTrigger,
         UniqueConstraintTrigger,
-        _MaintainedCountBase,
     )
 
     trigger_types = (
         UniqueConstraintTrigger,
         CheckConstraintTrigger,
         GeneratedFieldTrigger,
-        _MaintainedCountBase,
     )
 
     return [

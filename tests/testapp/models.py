@@ -5,7 +5,6 @@ from django.db.models.functions import Lower
 from django_pgconstraints import (
     CheckConstraintTrigger,
     GeneratedFieldTrigger,
-    MaintainedCount,
     UniqueConstraintTrigger,
 )
 
@@ -48,29 +47,6 @@ class Chapter(models.Model):
             UniqueConstraintTrigger(
                 fields=["name", "series__publisher"],
                 name="chapter_unique_name_per_publisher",
-            ),
-        ]
-
-
-# --- MaintainedCount models ---
-
-
-class Author(models.Model):
-    name = models.CharField(max_length=100)
-    book_count = models.IntegerField(default=0)
-
-
-class Book(models.Model):
-    title = models.CharField(max_length=200)
-    author = models.ForeignKey(Author, on_delete=models.CASCADE)
-
-    class Meta:
-        triggers = [
-            *MaintainedCount.triggers(
-                name="maintain_author_book_count",
-                target="testapp.Author",
-                target_field="book_count",
-                fk_field="author",
             ),
         ]
 
