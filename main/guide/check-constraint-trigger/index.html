@@ -10,11 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://oliverhaas.github.io/django-pgconstraints/main/reference/changelog/">
+        <link rel="canonical" href="https://oliverhaas.github.io/django-pgconstraints/main/guide/check-constraint-trigger/">
       
       
-        <link rel="prev" href="../../guide/validation/">
+        <link rel="prev" href="../unique-constraint-trigger/">
       
+      
+        <link rel="next" href="../generated-field-trigger/">
       
       
         
@@ -25,7 +27,7 @@
     
     
       
-        <title>Changelog - django-pgconstraints</title>
+        <title>CheckConstraintTrigger - django-pgconstraints</title>
       
     
     
@@ -76,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#changelog" class="md-skip">
+        <a href="#checkconstrainttrigger" class="md-skip">
           Skip to content
         </a>
       
@@ -116,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Changelog
+              CheckConstraintTrigger
             
           </span>
         </div>
@@ -401,8 +403,10 @@
       
   
   
+    
   
   
+  
     
     
     
@@ -413,11 +417,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
@@ -438,7 +442,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -456,7 +460,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/unique-constraint-trigger/" class="md-nav__link">
+      <a href="../unique-constraint-trigger/" class="md-nav__link">
         
   
   
@@ -481,10 +485,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../guide/check-constraint-trigger/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CheckConstraintTrigger
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -500,6 +531,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-conditions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local conditions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#foreign-key-traversal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Foreign-key traversal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-checks-on-the-same-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple checks on the same model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#database-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Database errors
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -512,7 +629,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/generated-field-trigger/" class="md-nav__link">
+      <a href="../generated-field-trigger/" class="md-nav__link">
         
   
   
@@ -540,7 +657,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/validation/" class="md-nav__link">
+      <a href="../validation/" class="md-nav__link">
         
   
   
@@ -572,8 +689,6 @@
       
   
   
-    
-  
   
   
     
@@ -586,11 +701,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -611,7 +726,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -626,37 +741,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Changelog
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../reference/changelog/" class="md-nav__link">
         
   
   
@@ -672,37 +760,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#010a1-unreleased" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        0.1.0a1 (Unreleased)
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -742,10 +799,65 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#010a1-unreleased" class="md-nav__link">
+  <a href="#signature" class="md-nav__link">
     <span class="md-ellipsis">
       
-        0.1.0a1 (Unreleased)
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-conditions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local conditions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#foreign-key-traversal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Foreign-key traversal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-checks-on-the-same-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple checks on the same model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#database-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Database errors
       
     </span>
   </a>
@@ -772,22 +884,89 @@
   
 
 
-<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
-<h2 id="010a1-unreleased">0.1.0a1 (Unreleased)<a class="headerlink" href="#010a1-unreleased" title="Permanent link">&para;</a></h2>
-<p>Initial release. Three trigger classes:</p>
+<h1 id="checkconstrainttrigger">CheckConstraintTrigger<a class="headerlink" href="#checkconstrainttrigger" title="Permanent link">&para;</a></h1>
+<p>A trigger-based check constraint whose <code>Q</code> can reference columns on
+related models via <code>F("rel__field")</code>. The API mirrors Django's
+<code>CheckConstraint</code> so the parameters feel familiar.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django_pgconstraints</span><span class="w"> </span><span class="kn">import</span> <span class="n">CheckConstraintTrigger</span>
+</code></pre></div>
+<h2 id="signature">Signature<a class="headerlink" href="#signature" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">CheckConstraintTrigger</span><span class="p">(</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">condition</span><span class="p">:</span> <span class="n">Q</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">violation_error_code</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">violation_error_message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="p">)</span>
+</code></pre></div>
+<p>The parameter name matches Django's <code>CheckConstraint</code>: <code>condition=</code>,
+not <code>check=</code>.</p>
+<h2 id="local-conditions">Local conditions<a class="headerlink" href="#local-conditions" title="Permanent link">&para;</a></h2>
+<p>For same-table conditions it works exactly like <code>CheckConstraint</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">Product</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">stock</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">IntegerField</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="k">class</span><span class="w"> </span><span class="nc">Meta</span><span class="p">:</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>        <span class="n">triggers</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>            <span class="n">CheckConstraintTrigger</span><span class="p">(</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>                <span class="n">condition</span><span class="o">=</span><span class="n">Q</span><span class="p">(</span><span class="n">stock__gte</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>                <span class="n">name</span><span class="o">=</span><span class="s2">&quot;product_stock_non_negative&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>            <span class="p">),</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>        <span class="p">]</span>
+</code></pre></div>
+<h2 id="foreign-key-traversal">Foreign-key traversal<a class="headerlink" href="#foreign-key-traversal" title="Permanent link">&para;</a></h2>
+<p>Where <code>CheckConstraintTrigger</code> earns its keep — the right-hand side of a
+lookup can live on a related model:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">OrderLine</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">product</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">ForeignKey</span><span class="p">(</span><span class="n">Product</span><span class="p">,</span> <span class="n">on_delete</span><span class="o">=</span><span class="n">models</span><span class="o">.</span><span class="n">CASCADE</span><span class="p">)</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">quantity</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">IntegerField</span><span class="p">()</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="k">class</span><span class="w"> </span><span class="nc">Meta</span><span class="p">:</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>        <span class="n">triggers</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>            <span class="n">CheckConstraintTrigger</span><span class="p">(</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>                <span class="n">condition</span><span class="o">=</span><span class="n">Q</span><span class="p">(</span><span class="n">quantity__lte</span><span class="o">=</span><span class="n">F</span><span class="p">(</span><span class="s2">&quot;product__stock&quot;</span><span class="p">)),</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>                <span class="n">name</span><span class="o">=</span><span class="s2">&quot;orderline_qty_lte_stock&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>            <span class="p">),</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>        <span class="p">]</span>
+</code></pre></div>
+<p>Each <code>__</code> hop in the <code>F()</code> reference compiles to a nested subquery, so
+arbitrary-depth chains (<code>F("order__customer__tier")</code>) work the same way.</p>
+<h2 id="multiple-checks-on-the-same-model">Multiple checks on the same model<a class="headerlink" href="#multiple-checks-on-the-same-model" title="Permanent link">&para;</a></h2>
+<p>Each check is its own trigger — list as many as you need:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">OrderLine</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="k">class</span><span class="w"> </span><span class="nc">Meta</span><span class="p">:</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>        <span class="n">triggers</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>            <span class="n">CheckConstraintTrigger</span><span class="p">(</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>                <span class="n">condition</span><span class="o">=</span><span class="n">Q</span><span class="p">(</span><span class="n">quantity__gt</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>                <span class="n">name</span><span class="o">=</span><span class="s2">&quot;orderline_qty_positive&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>            <span class="p">),</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>            <span class="n">CheckConstraintTrigger</span><span class="p">(</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>                <span class="n">condition</span><span class="o">=</span><span class="n">Q</span><span class="p">(</span><span class="n">quantity__lte</span><span class="o">=</span><span class="n">F</span><span class="p">(</span><span class="s2">&quot;product__stock&quot;</span><span class="p">)),</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>                <span class="n">name</span><span class="o">=</span><span class="s2">&quot;orderline_qty_lte_stock&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>            <span class="p">),</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>        <span class="p">]</span>
+</code></pre></div>
+<h2 id="validation">Validation<a class="headerlink" href="#validation" title="Permanent link">&para;</a></h2>
+<p><code>CheckConstraintTrigger.validate()</code> participates in <code>full_clean()</code>:</p>
 <ul>
-<li><code>UniqueConstraintTrigger</code> — unique constraint with foreign-key
-  traversal, Django expressions, partial conditions, <code>nulls_distinct</code>,
-  and deferred timing.</li>
-<li><code>CheckConstraintTrigger</code> — check constraint whose <code>Q</code> can reference
-  columns on related models via <code>F("rel__field")</code>.</li>
-<li><code>GeneratedFieldTrigger</code> — trigger-based generated field that supports
-  foreign-key traversal in its expression and installs reverse triggers
-  on related models so the value stays in sync.</li>
+<li>For a condition whose <code>F()</code> refs are all same-table, it falls through
+  to <code>Q.check()</code> and raises <code>ValidationError</code> on the instance.</li>
+<li>For conditions that traverse foreign keys, Python-level evaluation is
+  skipped — the trigger is the sole authority and the check happens at
+  <code>save()</code> time.</li>
 </ul>
-<p>Also ships a Django system check (<code>pgconstraints.E001</code>) that flags
-triggers accidentally placed in <code>Meta.constraints</code> instead of
-<code>Meta.triggers</code>.</p>
+<p>Both paths honour <code>violation_error_code</code> and <code>violation_error_message</code>.
+The message supports <code>%(name)s</code> interpolation for the trigger name:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">CheckConstraintTrigger</span><span class="p">(</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="n">condition</span><span class="o">=</span><span class="n">Q</span><span class="p">(</span><span class="n">quantity__gt</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="n">violation_error_code</span><span class="o">=</span><span class="s2">&quot;invalid_quantity&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">violation_error_message</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%(name)s</span><span class="s2">: quantity must be positive.&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;orderline_qty_positive&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">)</span>
+</code></pre></div>
+<h2 id="database-errors">Database errors<a class="headerlink" href="#database-errors" title="Permanent link">&para;</a></h2>
+<p>Violations raise <code>IntegrityError</code> with PostgreSQL error code <code>23514</code>
+(<code>check_violation</code>), same as a plain <code>CheckConstraint</code>.</p>
 
 
 

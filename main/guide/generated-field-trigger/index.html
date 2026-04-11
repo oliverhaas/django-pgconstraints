@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://oliverhaas.github.io/django-pgconstraints/main/getting-started/installation/">
+        <link rel="canonical" href="https://oliverhaas.github.io/django-pgconstraints/main/guide/generated-field-trigger/">
       
       
-        <link rel="prev" href="../..">
+        <link rel="prev" href="../check-constraint-trigger/">
       
       
-        <link rel="next" href="../quickstart/">
+        <link rel="next" href="../validation/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Installation - django-pgconstraints</title>
+        <title>GeneratedFieldTrigger - django-pgconstraints</title>
       
     
     
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#installation" class="md-skip">
+        <a href="#generatedfieldtrigger" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Installation
+              GeneratedFieldTrigger
             
           </span>
         </div>
@@ -288,8 +288,6 @@
       
   
   
-    
-  
   
   
     
@@ -302,11 +300,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
@@ -327,7 +325,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -342,37 +340,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Installation
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
         
   
   
@@ -388,81 +359,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Requirements
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#install" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Install
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#register-the-app" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Register the app
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#where-triggers-go" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Where triggers go
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#installing-the-triggers-in-the-database" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Installing the triggers in the database
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -475,7 +371,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../quickstart/" class="md-nav__link">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
         
   
   
@@ -507,8 +403,10 @@
       
   
   
+    
   
   
+  
     
     
     
@@ -519,11 +417,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
@@ -544,7 +442,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -562,7 +460,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/unique-constraint-trigger/" class="md-nav__link">
+      <a href="../unique-constraint-trigger/" class="md-nav__link">
         
   
   
@@ -590,7 +488,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/check-constraint-trigger/" class="md-nav__link">
+      <a href="../check-constraint-trigger/" class="md-nav__link">
         
   
   
@@ -615,10 +513,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../guide/generated-field-trigger/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GeneratedFieldTrigger
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -634,6 +559,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-differs-from-generatedfield" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it differs from GeneratedField
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#simple-expression-same-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Simple expression (same table)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#foreign-key-traversal-and-reverse-triggers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Foreign-key traversal and reverse triggers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#read-only-by-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Read-only by convention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -646,7 +657,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guide/validation/" class="md-nav__link">
+      <a href="../validation/" class="md-nav__link">
         
   
   
@@ -788,10 +799,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#signature" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Requirements
+        Signature
       
     </span>
   </a>
@@ -799,10 +810,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install" class="md-nav__link">
+  <a href="#how-it-differs-from-generatedfield" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install
+        How it differs from GeneratedField
       
     </span>
   </a>
@@ -810,10 +821,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#register-the-app" class="md-nav__link">
+  <a href="#simple-expression-same-table" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Register the app
+        Simple expression (same table)
       
     </span>
   </a>
@@ -821,10 +832,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-triggers-go" class="md-nav__link">
+  <a href="#foreign-key-traversal-and-reverse-triggers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where triggers go
+        Foreign-key traversal and reverse triggers
       
     </span>
   </a>
@@ -832,10 +843,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#installing-the-triggers-in-the-database" class="md-nav__link">
+  <a href="#read-only-by-convention" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Installing the triggers in the database
+        Read-only by convention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
       
     </span>
   </a>
@@ -862,58 +884,119 @@
   
 
 
-<h1 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h1>
-<h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Python 3.14+</li>
-<li>Django 6.0</li>
-<li>PostgreSQL (any currently supported version)</li>
-<li><a href="https://github.com/Opus10/django-pgtrigger">django-pgtrigger</a> 4.17+ (pulled in automatically)</li>
-</ul>
-<h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>django-pgconstraints
+<h1 id="generatedfieldtrigger">GeneratedFieldTrigger<a class="headerlink" href="#generatedfieldtrigger" title="Permanent link">&para;</a></h1>
+<p>A trigger-driven computed column whose expression can reference related
+rows. When a foreign-key chain appears in the expression, the package
+also installs reverse triggers on those related models so the value
+stays in sync when the referenced data changes.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django_pgconstraints</span><span class="w"> </span><span class="kn">import</span> <span class="n">GeneratedFieldTrigger</span>
 </code></pre></div>
-<p>or with uv:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uv<span class="w"> </span>add<span class="w"> </span>django-pgconstraints
+<h2 id="signature">Signature<a class="headerlink" href="#signature" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">GeneratedFieldTrigger</span><span class="p">(</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">field</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">expression</span><span class="p">:</span> <span class="n">BaseExpression</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">)</span>
 </code></pre></div>
-<h2 id="register-the-app">Register the app<a class="headerlink" href="#register-the-app" title="Permanent link">&para;</a></h2>
-<p>Add <code>pgtrigger</code> and <code>django_pgconstraints</code> to <code>INSTALLED_APPS</code>. Both are
-required: the trigger classes inherit from <code>pgtrigger.Trigger</code> and are
-installed via django-pgtrigger's machinery.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">INSTALLED_APPS</span> <span class="o">=</span> <span class="p">[</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="c1"># ...</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="s2">&quot;pgtrigger&quot;</span><span class="p">,</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="s2">&quot;django_pgconstraints&quot;</span><span class="p">,</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="c1"># your apps</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="p">]</span>
+<h2 id="how-it-differs-from-generatedfield">How it differs from <code>GeneratedField</code><a class="headerlink" href="#how-it-differs-from-generatedfield" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>GeneratedField</code></th>
+<th><code>GeneratedFieldTrigger</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Storage</td>
+<td>PostgreSQL <code>GENERATED ALWAYS AS … STORED</code></td>
+<td>Regular column kept in sync by a <code>BEFORE INSERT OR UPDATE</code> trigger</td>
+</tr>
+<tr>
+<td>FK traversal in the expression</td>
+<td>Not supported</td>
+<td>Supported (<code>F("product__price")</code>)</td>
+</tr>
+<tr>
+<td>Target column definition</td>
+<td>Declared implicitly</td>
+<td>Must be defined manually on the model</td>
+</tr>
+<tr>
+<td>External writes</td>
+<td>Rejected by PostgreSQL</td>
+<td>Silently overwritten on next write</td>
+</tr>
+</tbody>
+</table>
+<p>The target column is a regular field, which means you define it like any
+other field — pick a type and a default that is valid until the trigger
+runs.</p>
+<h2 id="simple-expression-same-table">Simple expression (same table)<a class="headerlink" href="#simple-expression-same-table" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django.db.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">F</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">LineItem</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">price</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">DecimalField</span><span class="p">(</span><span class="n">max_digits</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">decimal_places</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">quantity</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">IntegerField</span><span class="p">()</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">total</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">DecimalField</span><span class="p">(</span><span class="n">max_digits</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">decimal_places</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="k">class</span><span class="w"> </span><span class="nc">Meta</span><span class="p">:</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>        <span class="n">triggers</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>            <span class="n">GeneratedFieldTrigger</span><span class="p">(</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>                <span class="n">field</span><span class="o">=</span><span class="s2">&quot;total&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>                <span class="n">expression</span><span class="o">=</span><span class="n">F</span><span class="p">(</span><span class="s2">&quot;price&quot;</span><span class="p">)</span> <span class="o">*</span> <span class="n">F</span><span class="p">(</span><span class="s2">&quot;quantity&quot;</span><span class="p">),</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>                <span class="n">name</span><span class="o">=</span><span class="s2">&quot;lineitem_total&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>            <span class="p">),</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>        <span class="p">]</span>
 </code></pre></div>
-<h2 id="where-triggers-go">Where triggers go<a class="headerlink" href="#where-triggers-go" title="Permanent link">&para;</a></h2>
-<p>Triggers live in <strong><code>Meta.triggers</code></strong>, a hook contributed by
-django-pgtrigger. They do <strong>not</strong> go in <code>Meta.constraints</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">OrderLine</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="o">...</span>
+<p>After <code>save()</code>, call <code>instance.refresh_from_db()</code> to see the computed
+value. The in-memory Python object is not updated by the trigger.</p>
+<h2 id="foreign-key-traversal-and-reverse-triggers">Foreign-key traversal and reverse triggers<a class="headerlink" href="#foreign-key-traversal-and-reverse-triggers" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">Supplier</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">markup_pct</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">IntegerField</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="k">class</span><span class="w"> </span><span class="nc">Meta</span><span class="p">:</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>        <span class="n">triggers</span> <span class="o">=</span> <span class="p">[</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>            <span class="n">CheckConstraintTrigger</span><span class="p">(</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>                <span class="n">condition</span><span class="o">=</span><span class="n">Q</span><span class="p">(</span><span class="n">quantity__gt</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>                <span class="n">name</span><span class="o">=</span><span class="s2">&quot;orderline_qty_positive&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>            <span class="p">),</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>        <span class="p">]</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="k">class</span><span class="w"> </span><span class="nc">Part</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">supplier</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">ForeignKey</span><span class="p">(</span><span class="n">Supplier</span><span class="p">,</span> <span class="n">on_delete</span><span class="o">=</span><span class="n">models</span><span class="o">.</span><span class="n">CASCADE</span><span class="p">)</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">base_price</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">DecimalField</span><span class="p">(</span><span class="n">max_digits</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">decimal_places</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">markup_amount</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">DecimalField</span><span class="p">(</span><span class="n">max_digits</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">decimal_places</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="k">class</span><span class="w"> </span><span class="nc">Meta</span><span class="p">:</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>        <span class="n">triggers</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>            <span class="n">GeneratedFieldTrigger</span><span class="p">(</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>                <span class="n">field</span><span class="o">=</span><span class="s2">&quot;markup_amount&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>                <span class="n">expression</span><span class="o">=</span><span class="n">F</span><span class="p">(</span><span class="s2">&quot;base_price&quot;</span><span class="p">)</span> <span class="o">*</span> <span class="n">F</span><span class="p">(</span><span class="s2">&quot;supplier__markup_pct&quot;</span><span class="p">)</span> <span class="o">/</span> <span class="mi">100</span><span class="p">,</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>                <span class="n">name</span><span class="o">=</span><span class="s2">&quot;part_markup_amount&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>            <span class="p">),</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>        <span class="p">]</span>
 </code></pre></div>
-<p>Putting them in <code>Meta.constraints</code> would silently do nothing at the database
-level, so <code>django_pgconstraints</code> ships a system check (<code>pgconstraints.E001</code>)
-that fails <code>manage.py check</code> if you make that mistake.</p>
-<h2 id="installing-the-triggers-in-the-database">Installing the triggers in the database<a class="headerlink" href="#installing-the-triggers-in-the-database" title="Permanent link">&para;</a></h2>
-<p>django-pgtrigger installs triggers as part of <code>migrate</code>. After adding or
-changing a trigger, run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>makemigrations
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>python<span class="w"> </span>manage.py<span class="w"> </span>migrate
+<p>On every <code>INSERT</code> or <code>UPDATE</code> of a <code>Part</code> the forward trigger recomputes
+<code>markup_amount</code> from the current <code>Supplier.markup_pct</code>.</p>
+<p>In addition, the package installs a <strong>reverse trigger</strong> on <code>Supplier</code>:
+whenever <code>Supplier.markup_pct</code> changes, every related <code>Part</code> row has its
+<code>markup_amount</code> recomputed in the same transaction. Reverse triggers are
+registered from <code>AppConfig.ready()</code> and follow arbitrary-depth FK chains
+— if the expression is <code>F("part__supplier__markup_pct")</code>, reverse
+triggers are installed on both <code>Part</code> (for changes to <code>Part.supplier_id</code>)
+and <code>Supplier</code> (for changes to <code>markup_pct</code>).</p>
+<h2 id="read-only-by-convention">Read-only by convention<a class="headerlink" href="#read-only-by-convention" title="Permanent link">&para;</a></h2>
+<p>The target column is a regular column; PostgreSQL will happily let you
+write to it. Any manual write — ORM or raw SQL — is silently overwritten
+the next time the row is written again, because the trigger reruns and
+replaces the column value. Treat the field as read-only.</p>
+<p>Code that needs the computed value right after a save should call
+<code>refresh_from_db()</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">item</span> <span class="o">=</span> <span class="n">LineItem</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">price</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">quantity</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">item</span><span class="o">.</span><span class="n">total</span>  <span class="c1"># Decimal(&#39;0&#39;) — the Python instance has the default</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">item</span><span class="o">.</span><span class="n">refresh_from_db</span><span class="p">()</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">item</span><span class="o">.</span><span class="n">total</span>  <span class="c1"># Decimal(&#39;30.00&#39;)</span>
 </code></pre></div>
-<p>See the <a href="https://django-pgtrigger.readthedocs.io/en/stable/installation.html">django-pgtrigger installation
-docs</a>
-for the other installation strategies (<code>pgtrigger install</code>, schema-editor
-mode, etc.).</p>
+<h2 id="validation">Validation<a class="headerlink" href="#validation" title="Permanent link">&para;</a></h2>
+<p><code>GeneratedFieldTrigger</code> does not participate in <code>full_clean()</code> — it is
+computing a value rather than enforcing a constraint. Whatever the trigger
+produces is what ends up in the column.</p>
 
 
 
