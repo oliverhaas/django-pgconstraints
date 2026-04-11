@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 from django.db import DEFAULT_DB_ALIAS
 from django.db.models import Deferrable
 
-from django_pgconstraints.sql import _check_q_to_sql, _q_to_sql, _sql_value
+from django_pgconstraints.sql import _check_q_to_sql, _q_to_sql, _resolve_field_ref, _sql_value
 
 if TYPE_CHECKING:
     from django.db.models import Model, Q
@@ -22,15 +22,15 @@ if TYPE_CHECKING:
 
 
 class UniqueConstraintTrigger(pgtrigger.Trigger):
-    """Enforce uniqueness of field values, optionally across two tables.
+    """Enforce uniqueness of field values, with FK-traversal support.
 
-    Drop-in trigger replacement for Django's ``UniqueConstraint`` that can
-    also enforce uniqueness *across* a second table.
+    Drop-in trigger replacement for Django's ``UniqueConstraint`` that
+    additionally supports cross-table field references via ``__`` notation
+    (e.g. ``fields=["name", "book__author"]``).
 
-    When ``across`` is provided, the trigger checks the other table for
-    duplicates.  Each table in the pair needs its own trigger pointing at
-    the other.  Without ``across``, it enforces uniqueness within the
-    same table (like ``UniqueConstraint``).
+    Each field in *fields* can be a local field name or a ``__``-separated
+    chain that traverses FK relationships.  The trigger resolves these to
+    subqueries automatically.
 
     Set ``deferrable=Deferrable.DEFERRED`` for a constraint trigger that
     fires at commit time (default ``None`` — fires immediately).
@@ -46,8 +46,6 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         self,
         *,
         fields: list[str] | tuple[str, ...],
-        across: str | None = None,
-        across_field: str | None = None,
         condition: Q | None = None,
         deferrable: Deferrable | None = None,
         nulls_distinct: bool | None = None,
@@ -60,8 +58,6 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
             raise ValueError(msg)
 
         self.fields = list(fields)
-        self.across = across
-        self.across_field = across_field
         self.unique_condition = condition
         self.nulls_distinct = nulls_distinct
 
@@ -79,57 +75,41 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
 
     def get_func(self, model: Model) -> str:
         qn = pgtrigger.utils.quote
-        columns = [qn(model._meta.get_field(f).column) for f in self.fields]  # type: ignore[union-attr]  # noqa: SLF001
+        table = qn(model._meta.db_table)  # noqa: SLF001
+        pk_col = qn(model._meta.pk.column)  # noqa: SLF001
 
-        # Build condition guard (partial unique)
+        # Resolve each field for both NEW row and existing rows (via table alias).
+        new_exprs: list[str] = []
+        existing_exprs: list[str] = []
+        for field_chain in self.fields:
+            new_sql, _ = _resolve_field_ref(field_chain, model, qn, row_ref="NEW")  # type: ignore[arg-type]
+            exist_sql, _ = _resolve_field_ref(field_chain, model, qn, row_ref="existing")  # type: ignore[arg-type]
+            new_exprs.append(new_sql)
+            existing_exprs.append(exist_sql)
+
+        # NULL handling
+        if self.nulls_distinct is False:
+            null_guard = ""
+            comparisons = [f"{ex} IS NOT DISTINCT FROM {nw}" for ex, nw in zip(existing_exprs, new_exprs, strict=True)]
+        else:
+            null_checks = " OR ".join(f"({nw}) IS NULL" for nw in new_exprs)
+            null_guard = f"IF NOT ({null_checks}) THEN"
+            comparisons = [f"{ex} = {nw}" for ex, nw in zip(existing_exprs, new_exprs, strict=True)]
+
+        where_clause = " AND ".join([*comparisons, f"existing.{pk_col} IS DISTINCT FROM NEW.{pk_col}"])
+
+        # Advisory lock
+        if len(new_exprs) == 1:
+            lock_expr = f"hashtext(({new_exprs[0]})::text)"
+        else:
+            concat_parts = " || ',' || ".join(f"COALESCE(({nw})::text, '')" for nw in new_exprs)
+            lock_expr = f"hashtext({concat_parts})"
+
+        # Condition guard (partial unique)
         condition_sql = ""
         if self.unique_condition is not None:
             condition_sql = _q_to_sql(self.unique_condition, model, qn, row_ref="NEW")  # type: ignore[arg-type]
 
-        if self.across:
-            return self._cross_table_func(model, qn, columns, condition_sql)
-        return self._same_table_func(model, qn, columns, condition_sql)
-
-    def _null_guard(self, columns: list[str]) -> str:
-        """Return SQL that skips or includes NULL values based on nulls_distinct."""
-        if self.nulls_distinct is False:
-            # NULLs are NOT distinct — two NULLs violate uniqueness.
-            # No null guard needed; the WHERE clause uses IS NOT DISTINCT FROM.
-            return ""
-        # Default: NULLs are distinct — skip if ANY field is NULL.
-        null_checks = " OR ".join(f"NEW.{col} IS NULL" for col in columns)
-        return f"IF NOT ({null_checks}) THEN"
-
-    def _where_clause(self, lhs_columns: list[str], rhs_columns: list[str]) -> str:
-        """Build WHERE matching clause, NULL-safe when nulls_distinct=False."""
-        if self.nulls_distinct is False:
-            parts = [f"{lhs} IS NOT DISTINCT FROM NEW.{rhs}" for lhs, rhs in zip(lhs_columns, rhs_columns, strict=True)]
-        else:
-            parts = [f"{lhs} = NEW.{rhs}" for lhs, rhs in zip(lhs_columns, rhs_columns, strict=True)]
-        return " AND ".join(parts)
-
-    @staticmethod
-    def _lock_expr(columns: list[str]) -> str:
-        """Advisory lock expression on hash of field values."""
-        if len(columns) == 1:
-            return f"hashtext(NEW.{columns[0]}::text)"
-        concat_parts = " || ',' || ".join(f"COALESCE(NEW.{col}::text, '')" for col in columns)
-        return f"hashtext({concat_parts})"
-
-    def _cross_table_func(self, model: Model, qn: Any, columns: list[str], condition_sql: str) -> str:  # noqa: ARG002, ANN401
-        from django.apps import apps  # noqa: PLC0415
-
-        app_label, model_name = self.across.split(".")  # type: ignore[union-attr]
-        across_model = apps.get_model(app_label, model_name)
-        across_table = qn(across_model._meta.db_table)  # noqa: SLF001
-
-        across_fields = [self.across_field] if self.across_field else self.fields
-        across_columns = [qn(across_model._meta.get_field(f).column) for f in across_fields]  # noqa: SLF001
-
-        where_clause = self._where_clause(across_columns, columns)
-        lock_expr = self._lock_expr(columns)
-        null_guard = self._null_guard(columns)
-
         cond_open = f"IF {condition_sql} THEN " if condition_sql else ""
         cond_close = "END IF; " if condition_sql else ""
         null_open = f"{null_guard} " if null_guard else ""
@@ -140,40 +120,8 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
             {null_open}
                 PERFORM pg_advisory_xact_lock({lock_expr});
                 IF EXISTS (
-                    SELECT 1 FROM {across_table}
+                    SELECT 1 FROM {table} existing
                     WHERE {where_clause}
-                    FOR UPDATE
-                ) THEN
-                    RAISE EXCEPTION
-                        'Unique constraint "%s" is violated.', '{self.name}'
-                        USING ERRCODE = '23505', CONSTRAINT = '{self.name}';
-                END IF;
-            {null_close}
-            {cond_close}
-            RETURN NEW;
-        """)
-
-    def _same_table_func(self, model: Model, qn: Any, columns: list[str], condition_sql: str) -> str:  # noqa: ANN401
-        table = qn(model._meta.db_table)  # noqa: SLF001
-        pk_col = qn(model._meta.pk.column)  # noqa: SLF001
-
-        where_clause = self._where_clause(columns, columns)
-        lock_expr = self._lock_expr(columns)
-        null_guard = self._null_guard(columns)
-
-        cond_open = f"IF {condition_sql} THEN " if condition_sql else ""
-        cond_close = "END IF; " if condition_sql else ""
-        null_open = f"{null_guard} " if null_guard else ""
-        null_close = "END IF; " if null_guard else ""
-
-        return self.format_sql(f"""
-            {cond_open}
-            {null_open}
-                PERFORM pg_advisory_xact_lock({lock_expr});
-                IF EXISTS (
-                    SELECT 1 FROM {table}
-                    WHERE {where_clause}
-                    AND {pk_col} IS DISTINCT FROM NEW.{pk_col}
                     FOR UPDATE
                 ) THEN
                     RAISE EXCEPTION
@@ -193,36 +141,34 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         using: str = DEFAULT_DB_ALIAS,
     ) -> None:
         """Python-level validation, compatible with Django's full_clean()."""
-        if exclude and any(f in exclude for f in self.fields):
+        if exclude and any(f.split("__")[0] in exclude for f in self.fields):
             return
 
-        values = {f: getattr(instance, f) for f in self.fields}
+        # Resolve field values — for FK chains, traverse the related objects.
+        values: dict[str, Any] = {}
+        for field_chain in self.fields:
+            parts = field_chain.split("__")
+            obj: Any = instance
+            for part in parts:
+                obj = getattr(obj, part, None)
+                if obj is None:
+                    break
+            values[field_chain] = obj
 
         # Default (nulls_distinct is not False): NULLs never violate uniqueness.
         if self.nulls_distinct is not False and any(v is None for v in values.values()):
             return
 
-        if self.across:
-            from django.apps import apps  # noqa: PLC0415
-
-            across_fields = [self.across_field] if self.across_field else self.fields
-            across_model = apps.get_model(self.across)
-            lookup = {af: values[f] for af, f in zip(across_fields, self.fields, strict=True)}
-            if across_model.objects.using(using).filter(**lookup).exists():
-                raise ValidationError(
-                    self.violation_error_message,
-                    code=self.violation_error_code,
-                )
-        else:
-            lookup = dict(values)
-            qs = model._default_manager.using(using).filter(**lookup)  # noqa: SLF001
-            if not instance._state.adding and instance.pk is not None:  # noqa: SLF001
-                qs = qs.exclude(pk=instance.pk)
-            if qs.exists():
-                raise ValidationError(
-                    self.violation_error_message,
-                    code=self.violation_error_code,
-                )
+        # Build queryset with ORM-style dunder lookups.
+        lookup = dict(values)
+        qs = model._default_manager.using(using).filter(**lookup)  # noqa: SLF001
+        if not instance._state.adding and instance.pk is not None:  # noqa: SLF001
+            qs = qs.exclude(pk=instance.pk)
+        if qs.exists():
+            raise ValidationError(
+                self.violation_error_message,
+                code=self.violation_error_code,
+            )
 
 
 # ======================================================================

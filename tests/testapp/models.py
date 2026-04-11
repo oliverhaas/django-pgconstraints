@@ -13,29 +13,14 @@ from django_pgconstraints import (
 
 
 class Page(models.Model):
-    slug = models.SlugField(unique=True)
+    slug = models.SlugField(null=True)  # noqa: DJ001 — need NULL for uniqueness tests
+    section = models.CharField(max_length=50, default="main")
 
     class Meta:
         triggers = [
             UniqueConstraintTrigger(
                 fields=["slug"],
-                across="testapp.Post",
-                deferrable=models.Deferrable.DEFERRED,
-                name="page_unique_slug_across_post",
-            ),
-        ]
-
-
-class Post(models.Model):
-    slug = models.SlugField(unique=True)
-
-    class Meta:
-        triggers = [
-            UniqueConstraintTrigger(
-                fields=["slug"],
-                across="testapp.Page",
-                deferrable=models.Deferrable.DEFERRED,
-                name="post_unique_slug_across_page",
+                name="page_unique_slug",
             ),
         ]
 

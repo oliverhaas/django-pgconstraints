@@ -10,7 +10,6 @@ from django_pgconstraints.triggers import (
 from django_pgconstraints.validation import (
     validate_allowed_transition,
     validate_immutable,
-    validate_unique_across,
 )
 
 __all__ = [
@@ -21,5 +20,4 @@ __all__ = [
     "UniqueConstraintTrigger",
     "validate_allowed_transition",
     "validate_immutable",
-    "validate_unique_across",
 ]

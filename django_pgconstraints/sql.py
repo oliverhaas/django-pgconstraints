@@ -100,6 +100,8 @@ def _resolve_field_ref(
     chain: str,
     model: type[Model],
     qn: Callable[[str], str],
+    *,
+    row_ref: str = "NEW",
 ) -> tuple[str, str]:
     """Resolve a potentially cross-table field reference to SQL.
 
@@ -107,8 +109,11 @@ def _resolve_field_ref(
     where each segment is either a relation hop, a concrete field, or a
     trailing lookup suffix.
 
+    *row_ref* is the trigger row reference for local columns (``NEW``,
+    ``OLD``, or a bare table alias like ``"t"``).
+
     Returns ``(sql_expression, lookup_type)``.  The SQL expression uses
-    ``NEW.`` for local columns and nested sub-selects for FK hops.
+    *row_ref* for local columns and nested sub-selects for FK hops.
     """
     parts = chain.split("__")
     current_model = model
@@ -127,7 +132,7 @@ def _resolve_field_ref(
             fk_column = field.column  # type: ignore[union-attr]
             related_model = field.related_model
             if fk_ref is None:
-                fk_ref = f"NEW.{qn(fk_column)}"
+                fk_ref = f"{row_ref}.{qn(fk_column)}"
             else:
                 tbl = qn(current_model._meta.db_table)  # noqa: SLF001
                 pk = qn(current_model._meta.pk.column)  # noqa: SLF001
@@ -137,7 +142,7 @@ def _resolve_field_ref(
             # Concrete field found — remaining parts (if any) are the lookup.
             col = qn(field.column)  # type: ignore[union-attr]
             if fk_ref is None:
-                sql = f"NEW.{col}"
+                sql = f"{row_ref}.{col}"
             else:
                 tbl = qn(current_model._meta.db_table)  # noqa: SLF001
                 pk = qn(current_model._meta.pk.column)  # noqa: SLF001
