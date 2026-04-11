@@ -8,7 +8,7 @@ that bypassed the BEFORE INSERT/UPDATE forward trigger.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pgtrigger
 import pgtrigger.utils
@@ -21,7 +21,11 @@ from django_pgconstraints.triggers import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.db.models import QuerySet
+
+    from django_pgconstraints.triggers import _GeneratedFieldReverse
 
 
 def refresh_dependent(queryset: QuerySet) -> None:
@@ -38,7 +42,7 @@ def refresh_dependent(queryset: QuerySet) -> None:
     exist on ``queryset.model``. Safe to call from within a transaction.
     """
     root_model = queryset.model
-    qn = pgtrigger.utils.quote
+    qn: Callable[[str], str] = pgtrigger.utils.quote
     root_table = qn(root_model._meta.db_table)  # noqa: SLF001
     root_pk = qn(root_model._meta.pk.column)  # noqa: SLF001
 
@@ -64,24 +68,13 @@ def refresh_dependent(queryset: QuerySet) -> None:
         for trigger in getattr(child_model._meta, "triggers", []):  # noqa: SLF001
             if not isinstance(trigger, GeneratedFieldTrigger):
                 continue
-            for related_model, reverse_trigger in trigger.get_reverse_triggers(child_model):
+            for related_model, raw_reverse in trigger.get_reverse_triggers(child_model):
                 if related_model is not root_model:
                     continue
-                _emit_refresh_update(child_model, trigger, reverse_trigger, leaf_sql, qn)
-
-
-def _emit_refresh_update(
-    child_model: type,
-    trigger: GeneratedFieldTrigger,
-    reverse_trigger,  # noqa: ANN001 — _GeneratedFieldReverse, can't import without cycle
-    leaf_sql: str,
-    qn,  # noqa: ANN001
-) -> None:
-    """Issue ``UPDATE child SET target = target WHERE <chain_back>``."""
-    child_table = qn(child_model._meta.db_table)  # noqa: SLF001
-    target_col = qn(child_model._meta.get_field(trigger.field).column)  # noqa: SLF001
-    where = _build_chain_back_where(reverse_trigger.chain_back, qn, leaf_sql)
-
-    sql = f"UPDATE {child_table} SET {target_col} = {target_col} WHERE {where}"
-    with connection.cursor() as cur:
-        cur.execute(sql)
+                reverse_trigger = cast("_GeneratedFieldReverse", raw_reverse)
+                child_table = qn(child_model._meta.db_table)  # noqa: SLF001
+                target_col = qn(child_model._meta.get_field(trigger.field).column)  # type: ignore[union-attr]  # noqa: SLF001
+                where = _build_chain_back_where(reverse_trigger.chain_back, qn, leaf_sql)
+                sql = f"UPDATE {child_table} SET {target_col} = {target_col} WHERE {where}"
+                with connection.cursor() as cur:
+                    cur.execute(sql)
