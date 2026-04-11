@@ -26,9 +26,20 @@ if TYPE_CHECKING:
 def _compile_expression(expr: BaseExpression, model: type[Model], row_ref: str = "NEW") -> str:
     """Compile a Django expression to SQL, prefixing column refs with *row_ref*.
 
-    Django's ``resolve_expression`` with ``alias_cols=False`` produces bare
-    ``"column_name"`` references.  We replace each with ``{row_ref}."column_name"``.
+    Handles FK-traversal ``F()`` references (e.g. ``F("product__price")``)
+    by resolving them to subqueries via ``_resolve_field_ref``, then compiling
+    the rest of the expression normally through Django's expression compiler.
     """
+    from django.db.models import F as DjangoF  # noqa: PLC0415
+    from django.db.models.expressions import RawSQL  # noqa: PLC0415
+
+    qn = pgtrigger.utils.quote
+
+    # Replace FK-traversal F() refs with placeholder tokens, resolve them
+    # separately, and stitch back after column-prefixing.
+    placeholders: dict[str, str] = {}
+    expr = _replace_fk_refs(expr, model, qn, row_ref, DjangoF, RawSQL, placeholders)
+
     query = Query(model=model, alias_cols=False)
     resolved = expr.resolve_expression(query, allow_joins=False, for_save=True)
     compiler = query.get_compiler(connection=connection)
@@ -41,7 +52,51 @@ def _compile_expression(expr: BaseExpression, model: type[Model], row_ref: str =
         quoted_col = f'"{field.column}"'
         sql = sql.replace(quoted_col, f"{row_ref}.{quoted_col}")
 
+    # Restore FK-traversal subqueries (which already have correct refs).
+    for placeholder, resolved_sql in placeholders.items():
+        sql = sql.replace(placeholder, resolved_sql)
+
     return sql
+
+
+_FK_PLACEHOLDER_COUNTER = 0
+
+
+def _replace_fk_refs(  # noqa: PLR0913
+    expr: BaseExpression,
+    model: type[Model],
+    qn: Any,  # noqa: ANN401
+    row_ref: str,
+    f_class: type,
+    rawsql_class: type,
+    placeholders: dict[str, str],
+) -> BaseExpression:
+    """Recursively replace FK-traversal F() refs with placeholder RawSQL."""
+    global _FK_PLACEHOLDER_COUNTER  # noqa: PLW0603
+
+    if isinstance(expr, f_class):
+        name: str = expr.name  # type: ignore[attr-defined]
+        if "__" in name:
+            resolved_sql, _ = _resolve_field_ref(name, model, qn, row_ref=row_ref)
+            _FK_PLACEHOLDER_COUNTER += 1
+            token = f"__pgc_fk_{_FK_PLACEHOLDER_COUNTER}__"
+            placeholders[token] = resolved_sql
+            # Use a RawSQL with the placeholder so Django compiles it as-is.
+            return rawsql_class(token, ())
+        return expr
+
+    # Clone the expression and recurse into source_expressions.
+    clone = expr.copy()
+    source_exprs = clone.get_source_expressions()
+    if source_exprs:
+        new_sources = [
+            _replace_fk_refs(child, model, qn, row_ref, f_class, rawsql_class, placeholders)
+            if child is not None
+            else None
+            for child in source_exprs
+        ]
+        clone.set_source_expressions(new_sources)  # type: ignore[arg-type]
+    return clone
 
 
 class UniqueConstraintTrigger(pgtrigger.Trigger):

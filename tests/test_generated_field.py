@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 from django.db.models import F
-from testapp.models import LineItem
+from testapp.models import LineItem, Part, PurchaseItem, Supplier
 
 from django_pgconstraints import GeneratedFieldTrigger
 
@@ -74,6 +74,91 @@ class TestSameRowStringExpression:
         item.save()
         item.refresh_from_db()
         assert item.slug == "goodbye"
+
+
+# ---------------------------------------------------------------------------
+# Construction
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Single-hop FK traversal: expression references a related model's field
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+class TestFKTraversalExpression:
+    """Generated field computed from a related model's field via FK."""
+
+    def test_insert_computes_from_related(self):
+        """line_total = quantity * part.base_price, resolved via FK."""
+        part = Part.objects.create(
+            name="Bolt",
+            supplier=Supplier.objects.create(name="Acme"),
+            base_price=Decimal("2.50"),
+        )
+        item = PurchaseItem.objects.create(part=part, quantity=10)
+        item.refresh_from_db()
+        assert item.line_total == Decimal("25.00")
+
+    def test_update_quantity_recomputes(self):
+        part = Part.objects.create(
+            name="Bolt",
+            supplier=Supplier.objects.create(name="Acme"),
+            base_price=Decimal("2.50"),
+        )
+        item = PurchaseItem.objects.create(part=part, quantity=10)
+        item.quantity = 4
+        item.save()
+        item.refresh_from_db()
+        assert item.line_total == Decimal("10.00")
+
+    def test_reassign_fk_recomputes(self):
+        """Changing the FK to a different part recomputes with the new price."""
+        supplier = Supplier.objects.create(name="Acme")
+        cheap = Part.objects.create(name="Cheap", supplier=supplier, base_price=Decimal("1.00"))
+        expensive = Part.objects.create(name="Expensive", supplier=supplier, base_price=Decimal("50.00"))
+        item = PurchaseItem.objects.create(part=cheap, quantity=3)
+        item.refresh_from_db()
+        assert item.line_total == Decimal("3.00")
+
+        item.part = expensive
+        item.save()
+        item.refresh_from_db()
+        assert item.line_total == Decimal("150.00")
+
+    def test_related_price_change_does_not_auto_update(self):
+        """Changing part.base_price does NOT update existing PurchaseItems.
+
+        This is the same-row trigger only — reverse triggers will be added later.
+        This test documents the current limitation.
+        """
+        supplier = Supplier.objects.create(name="Acme")
+        part = Part.objects.create(name="Bolt", supplier=supplier, base_price=Decimal("2.50"))
+        item = PurchaseItem.objects.create(part=part, quantity=10)
+        item.refresh_from_db()
+        assert item.line_total == Decimal("25.00")
+
+        # Change the price on the related model.
+        part.base_price = Decimal("5.00")
+        part.save()
+
+        # The PurchaseItem is NOT updated — only fires on PurchaseItem INSERT/UPDATE.
+        item.refresh_from_db()
+        assert item.line_total == Decimal("25.00")  # stale, but expected for now
+
+    def test_bulk_create(self):
+        supplier = Supplier.objects.create(name="Acme")
+        bolt = Part.objects.create(name="Bolt", supplier=supplier, base_price=Decimal("2.50"))
+        nut = Part.objects.create(name="Nut", supplier=supplier, base_price=Decimal("0.50"))
+        PurchaseItem.objects.bulk_create(
+            [
+                PurchaseItem(part=bolt, quantity=10),
+                PurchaseItem(part=nut, quantity=100),
+            ],
+        )
+        totals = PurchaseItem.objects.order_by("part__name").values_list("line_total", flat=True)
+        assert list(totals) == [Decimal("25.00"), Decimal("50.00")]
 
 
 # ---------------------------------------------------------------------------

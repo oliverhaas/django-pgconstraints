@@ -164,3 +164,32 @@ class LineItem(models.Model):
                 name="lineitem_slug",
             ),
         ]
+
+
+# --- GeneratedFieldTrigger: FK-traversal models ---
+
+
+class Supplier(models.Model):
+    name = models.CharField(max_length=100)
+    markup_pct = models.IntegerField(default=10)
+
+
+class Part(models.Model):
+    name = models.CharField(max_length=100)
+    supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE)
+    base_price = models.DecimalField(max_digits=10, decimal_places=2)
+
+
+class PurchaseItem(models.Model):
+    part = models.ForeignKey(Part, on_delete=models.CASCADE)
+    quantity = models.IntegerField()
+    line_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    class Meta:
+        triggers = [
+            GeneratedFieldTrigger(
+                field="line_total",
+                expression=F("quantity") * F("part__base_price"),
+                name="purchaseitem_line_total",
+            ),
+        ]
