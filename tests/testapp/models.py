@@ -3,10 +3,8 @@ from django.db.models import F, Q
 from django.db.models.functions import Lower
 
 from django_pgconstraints import (
-    AllowedTransitions,
     CheckConstraintTrigger,
     GeneratedFieldTrigger,
-    Immutable,
     MaintainedCount,
     UniqueConstraintTrigger,
 )
@@ -47,47 +45,9 @@ class Chapter(models.Model):
 
     class Meta:
         triggers = [
-            # Unique chapter name per publisher (2-hop FK traversal)
             UniqueConstraintTrigger(
                 fields=["name", "series__publisher"],
                 name="chapter_unique_name_per_publisher",
-            ),
-        ]
-
-
-# --- AllowedTransitions model ---
-
-
-class Order(models.Model):
-    status = models.CharField(max_length=20, default="draft")
-
-    class Meta:
-        triggers = [
-            AllowedTransitions(
-                field="status",
-                transitions={
-                    "draft": ["pending"],
-                    "pending": ["shipped", "cancelled"],
-                    "shipped": ["delivered"],
-                },
-                name="order_status_transitions",
-            ),
-        ]
-
-
-# --- Immutable model ---
-
-
-class Invoice(models.Model):
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    status = models.CharField(max_length=20, default="draft")
-
-    class Meta:
-        triggers = [
-            Immutable(
-                fields=["amount"],
-                when_condition=Q(status="paid"),
-                name="invoice_immutable_amount_when_paid",
             ),
         ]
 

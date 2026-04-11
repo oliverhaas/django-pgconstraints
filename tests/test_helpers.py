@@ -5,9 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from django.db.models import Q
 
-from django_pgconstraints import AllowedTransitions, Immutable
 from django_pgconstraints.sql import _sql_value
 
 # ---------------------------------------------------------------------------
@@ -65,47 +63,3 @@ class TestSqlValue:
     def test_unsupported_type(self):
         with pytest.raises(TypeError, match="Cannot convert list"):
             _sql_value([1, 2, 3])  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# AllowedTransitions construction
-# ---------------------------------------------------------------------------
-
-
-class TestAllowedTransitionsConstruction:
-    def test_basic_construction(self):
-        t = AllowedTransitions(
-            field="status",
-            transitions={"draft": ["pending"], "pending": ["shipped"]},
-            name="c",
-        )
-        assert t.field == "status"
-        assert t.transitions == {"draft": ["pending"], "pending": ["shipped"]}
-        assert t.name == "c"
-
-
-# ---------------------------------------------------------------------------
-# Immutable.__init__ validation
-# ---------------------------------------------------------------------------
-
-
-class TestImmutableInit:
-    def test_empty_fields_raises(self):
-        with pytest.raises(ValueError, match="at least one field"):
-            Immutable(fields=[], name="c")
-
-
-# ---------------------------------------------------------------------------
-# Immutable construction
-# ---------------------------------------------------------------------------
-
-
-class TestImmutableConstruction:
-    def test_with_when_condition(self):
-        t = Immutable(fields=["amount"], when_condition=Q(status="paid"), name="c")
-        assert t.fields == ["amount"]
-        assert t.when_condition == Q(status="paid")
-
-    def test_without_when_condition(self):
-        t = Immutable(fields=["amount"], name="c")
-        assert t.when_condition is None

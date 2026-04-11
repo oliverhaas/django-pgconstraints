@@ -38,9 +38,8 @@ def check_triggers_not_in_constraints(**kwargs: Any) -> list[CheckMessage]:  # n
     from django.apps import apps  # noqa: PLC0415
 
     from django_pgconstraints.triggers import (  # noqa: PLC0415
-        AllowedTransitions,
         CheckConstraintTrigger,
-        Immutable,
+        GeneratedFieldTrigger,
         UniqueConstraintTrigger,
         _MaintainedCountBase,
     )
@@ -48,8 +47,7 @@ def check_triggers_not_in_constraints(**kwargs: Any) -> list[CheckMessage]:  # n
     trigger_types = (
         UniqueConstraintTrigger,
         CheckConstraintTrigger,
-        AllowedTransitions,
-        Immutable,
+        GeneratedFieldTrigger,
         _MaintainedCountBase,
     )
 
