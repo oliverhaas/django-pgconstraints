@@ -107,10 +107,7 @@ pythonpath = ["tests"]
 addopts = "--cov=django_pgconstraints --cov-report=term-missing --cov-report=xml --no-cov-on-fail"
 testpaths = ["tests"]
 xfail_strict = true
-markers = [
-  "unit: fast, isolated tests with no database access",
-  "integration: tests that hit the real PostgreSQL database via triggers",
-]
+markers = ["unit: fast, isolated tests with no database access"]
 
 [tool.coverage.run]
 omit = ["tests/*"]
