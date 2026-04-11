@@ -442,6 +442,47 @@ class Immutable(pgtrigger.Trigger):
 
 
 # ======================================================================
+# GeneratedFieldTrigger
+# ======================================================================
+
+
+class GeneratedFieldTrigger(pgtrigger.Trigger):
+    """Automatically compute and set a field value from an expression.
+
+    Trigger-based replacement for Django's ``GeneratedField`` that fires
+    ``BEFORE INSERT OR UPDATE`` and sets ``NEW.<field>`` to the resolved
+    expression value.
+
+    For same-row expressions, this behaves identically to
+    ``GeneratedField(expression=..., db_persist=True)``.
+    """
+
+    when = pgtrigger.Before
+    operation = pgtrigger.Insert | pgtrigger.Update
+
+    def __init__(
+        self,
+        *,
+        field: str,
+        expression: BaseExpression,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> None:
+        self.field = field
+        self.expression = expression
+        super().__init__(**kwargs)
+
+    def get_func(self, model: Model) -> str:
+        qn = pgtrigger.utils.quote
+        target_col = qn(model._meta.get_field(self.field).column)  # type: ignore[union-attr]  # noqa: SLF001
+        expr_sql = _compile_expression(self.expression, model, row_ref="NEW")  # type: ignore[arg-type]
+
+        return self.format_sql(f"""
+            NEW.{target_col} := {expr_sql};
+            RETURN NEW;
+        """)
+
+
+# ======================================================================
 # MaintainedCount
 # ======================================================================
 

@@ -1,9 +1,11 @@
 from django.db import models
 from django.db.models import F, Q
+from django.db.models.functions import Lower
 
 from django_pgconstraints import (
     AllowedTransitions,
     CheckConstraintTrigger,
+    GeneratedFieldTrigger,
     Immutable,
     MaintainedCount,
     UniqueConstraintTrigger,
@@ -135,5 +137,30 @@ class OrderLine(models.Model):
             CheckConstraintTrigger(
                 check=Q(quantity__gt=0),
                 name="orderline_qty_positive",
+            ),
+        ]
+
+
+# --- GeneratedFieldTrigger models ---
+
+
+class LineItem(models.Model):
+    description = models.CharField(max_length=200)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    quantity = models.IntegerField()
+    total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    slug = models.CharField(max_length=200, default="")
+
+    class Meta:
+        triggers = [
+            GeneratedFieldTrigger(
+                field="total",
+                expression=F("price") * F("quantity"),
+                name="lineitem_total",
+            ),
+            GeneratedFieldTrigger(
+                field="slug",
+                expression=Lower("description"),
+                name="lineitem_slug",
             ),
         ]

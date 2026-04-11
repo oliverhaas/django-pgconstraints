@@ -3,6 +3,7 @@
 from django_pgconstraints.triggers import (
     AllowedTransitions,
     CheckConstraintTrigger,
+    GeneratedFieldTrigger,
     Immutable,
     MaintainedCount,
     UniqueConstraintTrigger,
@@ -15,6 +16,7 @@ from django_pgconstraints.validation import (
 __all__ = [
     "AllowedTransitions",
     "CheckConstraintTrigger",
+    "GeneratedFieldTrigger",
     "Immutable",
     "MaintainedCount",
     "UniqueConstraintTrigger",
