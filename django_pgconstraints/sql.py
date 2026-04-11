@@ -150,7 +150,11 @@ def _resolve_field_ref(
             lookup = "__".join(parts[i + 1 :]) or "exact"
             return sql, lookup
 
-    msg = f"Field chain '{chain}' ends with a relation, expected a concrete field"
+    # Chain ends at a relation — use the FK column value (the related PK).
+    if fk_ref is not None:
+        return fk_ref, "exact"
+
+    msg = f"Field chain '{chain}' could not be resolved"
     raise ValueError(msg)
 
 

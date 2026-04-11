@@ -25,6 +25,34 @@ class Page(models.Model):
         ]
 
 
+# --- UniqueConstraintTrigger: FK traversal models ---
+
+
+class Publisher(models.Model):
+    name = models.CharField(max_length=100)
+
+
+class Series(models.Model):
+    title = models.CharField(max_length=200)
+    publisher = models.ForeignKey(Publisher, on_delete=models.CASCADE)
+
+
+class Chapter(models.Model):
+    """Chapter names must be unique within the same publisher (FK traversal)."""
+
+    name = models.CharField(max_length=200)
+    series = models.ForeignKey(Series, on_delete=models.CASCADE)
+
+    class Meta:
+        triggers = [
+            # Unique chapter name per publisher (2-hop FK traversal)
+            UniqueConstraintTrigger(
+                fields=["name", "series__publisher"],
+                name="chapter_unique_name_per_publisher",
+            ),
+        ]
+
+
 # --- AllowedTransitions model ---
 
 
