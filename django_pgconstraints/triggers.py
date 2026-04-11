@@ -559,6 +559,28 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
     - After creating or updating an instance, call ``instance.refresh_from_db()``
       to see the computed value.  The in-memory Python object is not
       automatically updated by the PostgreSQL trigger.
+
+    **Cascading behavior:**
+
+    When a referenced field on a related model changes, an
+    ``AFTER UPDATE`` statement-level trigger automatically recomputes
+    this field on every child row. Bulk updates
+    (``Model.objects.filter(...).update(...)``) cascade in one set-based
+    ``UPDATE`` per dependency, not one per affected parent row.
+
+    If you bypass triggers (raw SQL, ``ALTER TABLE ... DISABLE TRIGGER``,
+    restoring a dump without triggers attached), call
+    :func:`~django_pgconstraints.refresh_dependent` with a queryset of
+    the parent model to reconcile dependent fields::
+
+        from django_pgconstraints import refresh_dependent
+        refresh_dependent(Supplier.objects.filter(pk__in=changed_ids))
+
+    **Admin integration:**
+
+    Mix :class:`~django_pgconstraints.ComputedFieldsReadOnlyAdminMixin`
+    into your ``ModelAdmin`` to prevent users from typing into computed
+    fields in admin (they would be silently overwritten on save).
     """
 
     when = pgtrigger.Before
