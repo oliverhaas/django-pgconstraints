@@ -7,6 +7,7 @@ import pytest
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection
+from django.db.models.functions import Lower
 from testapp.models import Page
 
 from django_pgconstraints import UniqueConstraintTrigger
@@ -175,10 +176,44 @@ class TestUniqueConstraintTriggerConcurrency:
 
 
 class TestUniqueConstraintTriggerConstruction:
-    def test_empty_fields_raises(self):
+    def test_empty_fields_and_expressions_raises(self):
         with pytest.raises(ValueError, match="At least one field"):
             UniqueConstraintTrigger(fields=[], name="c")
 
     def test_fields_stored(self):
         t = UniqueConstraintTrigger(fields=["slug", "section"], name="c")
         assert t.fields == ["slug", "section"]
+
+    def test_expressions_stored(self):
+        t = UniqueConstraintTrigger(Lower("slug"), name="c")
+        assert len(t.expressions) == 1
+
+    def test_fields_and_expressions_together(self):
+        t = UniqueConstraintTrigger(Lower("slug"), fields=["section"], name="c")
+        assert t.fields == ["section"]
+        assert len(t.expressions) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+class TestUniqueConstraintTriggerExpressions:
+    """Verify expression-based uniqueness (e.g. Lower)."""
+
+    def test_case_insensitive_unique(self):
+        """Lower("slug") should treat 'Hello' and 'hello' as duplicates."""
+        trigger = UniqueConstraintTrigger(Lower("slug"), name="page_slug_ci")
+        trigger.install(Page)
+        try:
+            Page.objects.create(slug="Hello")
+            with pytest.raises(IntegrityError):
+                Page.objects.create(slug="hello")
+        finally:
+            trigger.uninstall(Page)
+
+    def test_case_insensitive_different_values_allowed(self):
+        trigger = UniqueConstraintTrigger(Lower("slug"), name="page_slug_ci")
+        trigger.install(Page)
+        try:
+            Page.objects.create(slug="alpha")
+            Page.objects.create(slug="beta")
+        finally:
+            trigger.uninstall(Page)

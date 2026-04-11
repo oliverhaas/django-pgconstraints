@@ -7,13 +7,15 @@ from typing import TYPE_CHECKING, Any
 import pgtrigger
 import pgtrigger.utils
 from django.core.exceptions import ValidationError
-from django.db import DEFAULT_DB_ALIAS
+from django.db import DEFAULT_DB_ALIAS, connection
 from django.db.models import Deferrable
+from django.db.models.sql import Query
 
 from django_pgconstraints.sql import _check_q_to_sql, _q_to_sql, _resolve_field_ref, _sql_value
 
 if TYPE_CHECKING:
     from django.db.models import Model, Q
+    from django.db.models.expressions import BaseExpression
 
 
 # ======================================================================
@@ -21,16 +23,39 @@ if TYPE_CHECKING:
 # ======================================================================
 
 
+def _compile_expression(expr: BaseExpression, model: type[Model], row_ref: str = "NEW") -> str:
+    """Compile a Django expression to SQL, prefixing column refs with *row_ref*.
+
+    Django's ``resolve_expression`` with ``alias_cols=False`` produces bare
+    ``"column_name"`` references.  We replace each with ``{row_ref}."column_name"``.
+    """
+    query = Query(model=model, alias_cols=False)
+    resolved = expr.resolve_expression(query, allow_joins=False, for_save=True)
+    compiler = query.get_compiler(connection=connection)
+    sql, params = resolved.as_sql(compiler, connection)
+    if params:
+        sql = sql % tuple(compiler.connection.schema_editor().quote_value(p) for p in params)
+
+    # Prefix bare column references with the row reference.
+    for field in model._meta.fields:  # noqa: SLF001
+        quoted_col = f'"{field.column}"'
+        sql = sql.replace(quoted_col, f"{row_ref}.{quoted_col}")
+
+    return sql
+
+
 class UniqueConstraintTrigger(pgtrigger.Trigger):
-    """Enforce uniqueness of field values, with FK-traversal support.
+    """Enforce uniqueness of field values, with FK-traversal and expression support.
 
-    Drop-in trigger replacement for Django's ``UniqueConstraint`` that
-    additionally supports cross-table field references via ``__`` notation
-    (e.g. ``fields=["name", "book__author"]``).
+    Drop-in trigger replacement for Django's ``UniqueConstraint``.
 
-    Each field in *fields* can be a local field name or a ``__``-separated
-    chain that traverses FK relationships.  The trigger resolves these to
-    subqueries automatically.
+    *fields* can contain:
+    - plain field names (``"slug"``)
+    - ``__``-separated FK chains (``"book__author"``)
+
+    *expressions* can contain Django expressions (``Lower("email")``).
+
+    At least one of *fields* or *expressions* must be provided.
 
     Set ``deferrable=Deferrable.DEFERRED`` for a constraint trigger that
     fires at commit time (default ``None`` — fires immediately).
@@ -44,8 +69,8 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
 
     def __init__(  # noqa: PLR0913
         self,
-        *,
-        fields: list[str] | tuple[str, ...],
+        *expressions: BaseExpression,
+        fields: list[str] | tuple[str, ...] = (),
         condition: Q | None = None,
         deferrable: Deferrable | None = None,
         nulls_distinct: bool | None = None,
@@ -53,11 +78,12 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         violation_error_message: str | None = None,
         **kwargs: Any,  # noqa: ANN401
     ) -> None:
-        if not fields:
-            msg = "At least one field is required."
+        if not fields and not expressions:
+            msg = "At least one field or expression is required."
             raise ValueError(msg)
 
         self.fields = list(fields)
+        self.expressions = list(expressions)
         self.unique_condition = condition
         self.nulls_distinct = nulls_distinct
 
@@ -78,14 +104,19 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         table = qn(model._meta.db_table)  # noqa: SLF001
         pk_col = qn(model._meta.pk.column)  # noqa: SLF001
 
-        # Resolve each field for both NEW row and existing rows (via table alias).
+        # Resolve each field/expression for both NEW row and existing rows.
         new_exprs: list[str] = []
         existing_exprs: list[str] = []
+
         for field_chain in self.fields:
             new_sql, _ = _resolve_field_ref(field_chain, model, qn, row_ref="NEW")  # type: ignore[arg-type]
             exist_sql, _ = _resolve_field_ref(field_chain, model, qn, row_ref="existing")  # type: ignore[arg-type]
             new_exprs.append(new_sql)
             existing_exprs.append(exist_sql)
+
+        for expr in self.expressions:
+            new_exprs.append(_compile_expression(expr, model, row_ref="NEW"))  # type: ignore[arg-type]
+            existing_exprs.append(_compile_expression(expr, model, row_ref="existing"))  # type: ignore[arg-type]
 
         # NULL handling
         if self.nulls_distinct is False:
