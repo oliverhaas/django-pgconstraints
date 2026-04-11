@@ -163,3 +163,67 @@ class IndexedSlugPage(models.Model):
                 name="indexedslugpage_slug_unique",
             ),
         ]
+
+
+class IndexedCompositePage(models.Model):
+    """Composite unique index backing (fields=['slug','section'])."""
+
+    slug = models.SlugField()
+    section = models.CharField(max_length=50, default="main")
+
+    class Meta:
+        triggers = [
+            UniqueConstraintTrigger(
+                fields=["slug", "section"],
+                index=True,
+                name="indexedcompositepage_slug_section_unique",
+            ),
+        ]
+
+
+class IndexedLowerPage(models.Model):
+    """Functional unique index backing (expressions=(Lower('slug'),))."""
+
+    slug = models.SlugField()
+
+    class Meta:
+        triggers = [
+            UniqueConstraintTrigger(
+                Lower("slug"),
+                index=True,
+                name="indexedlowerpage_lower_slug_unique",
+            ),
+        ]
+
+
+class IndexedNullsNotDistinctPage(models.Model):
+    """NULLS NOT DISTINCT unique index backing (PG 15+)."""
+
+    slug = models.SlugField(null=True)  # noqa: DJ001 — nullable for the test
+
+    class Meta:
+        triggers = [
+            UniqueConstraintTrigger(
+                fields=["slug"],
+                index=True,
+                nulls_distinct=False,
+                name="indexednullsnotdistinctpage_slug_unique",
+            ),
+        ]
+
+
+class IndexedPartialPage(models.Model):
+    """Partial unique index backing (condition=Q(published=True))."""
+
+    slug = models.SlugField()
+    published = models.BooleanField(default=False)
+
+    class Meta:
+        triggers = [
+            UniqueConstraintTrigger(
+                fields=["slug"],
+                condition=Q(published=True),
+                index=True,
+                name="indexedpartialpage_slug_published_unique",
+            ),
+        ]

@@ -138,3 +138,141 @@ def test_explicit_install_uninstall_roundtrip():
         )
         rows = cur.fetchall()
     assert rows, "install() did not create the index"
+
+
+# ---------------------------------------------------------------------------
+# Composite unique index
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_composite_index_is_installed():
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE tablename = 'testapp_indexedcompositepage' "
+            "AND indexname LIKE 'pgconstraints_idx_%%'",
+        )
+        rows = cur.fetchall()
+    assert rows
+    idxdef = rows[0][0]
+    assert "UNIQUE" in idxdef
+    # pg_indexes normalizes unquoted identifiers, so no double-quotes here.
+    assert "slug" in idxdef
+    assert "section" in idxdef
+
+
+@pytest.mark.django_db(transaction=True)
+def test_composite_index_allows_same_slug_different_section():
+    from testapp.models import IndexedCompositePage  # noqa: PLC0415
+
+    IndexedCompositePage.objects.create(slug="dup", section="a")
+    # Same slug, different section — allowed by composite uniqueness.
+    IndexedCompositePage.objects.create(slug="dup", section="b")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_composite_index_rejects_same_slug_same_section():
+    from testapp.models import IndexedCompositePage  # noqa: PLC0415
+
+    IndexedCompositePage.objects.create(slug="dup", section="a")
+    with pytest.raises(IntegrityError):
+        IndexedCompositePage.objects.create(slug="dup", section="a")
+
+
+# ---------------------------------------------------------------------------
+# Functional (expression) unique index — Lower("slug")
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lower_index_is_installed():
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE tablename = 'testapp_indexedlowerpage' "
+            "AND indexname LIKE 'pgconstraints_idx_%%'",
+        )
+        rows = cur.fetchall()
+    assert rows
+    idxdef = rows[0][0]
+    assert "UNIQUE" in idxdef
+    assert "lower" in idxdef.lower()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lower_index_treats_case_variants_as_duplicate():
+    from testapp.models import IndexedLowerPage  # noqa: PLC0415
+
+    IndexedLowerPage.objects.create(slug="Hello")
+    with pytest.raises(IntegrityError):
+        IndexedLowerPage.objects.create(slug="HELLO")  # same LOWER() value
+
+
+# ---------------------------------------------------------------------------
+# NULLS NOT DISTINCT unique index (PG 15+)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_nulls_not_distinct_index_is_installed():
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE tablename = 'testapp_indexednullsnotdistinctpage' "
+            "AND indexname LIKE 'pgconstraints_idx_%%'",
+        )
+        rows = cur.fetchall()
+    assert rows
+    idxdef = rows[0][0]
+    assert "UNIQUE" in idxdef
+    assert "NULLS NOT DISTINCT" in idxdef
+
+
+@pytest.mark.django_db(transaction=True)
+def test_nulls_not_distinct_index_rejects_duplicate_nulls():
+    from testapp.models import IndexedNullsNotDistinctPage  # noqa: PLC0415
+
+    IndexedNullsNotDistinctPage.objects.create(slug=None)
+    with pytest.raises(IntegrityError):
+        IndexedNullsNotDistinctPage.objects.create(slug=None)
+
+
+# ---------------------------------------------------------------------------
+# Partial unique index (condition=Q(...))
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_partial_index_is_installed_with_where_clause():
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE tablename = 'testapp_indexedpartialpage' "
+            "AND indexname LIKE 'pgconstraints_idx_%%'",
+        )
+        rows = cur.fetchall()
+    assert rows
+    idxdef = rows[0][0]
+    assert "UNIQUE" in idxdef
+    assert "WHERE" in idxdef.upper()
+    assert "published" in idxdef.lower()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_partial_index_rejects_duplicate_when_condition_met():
+    from testapp.models import IndexedPartialPage  # noqa: PLC0415
+
+    IndexedPartialPage.objects.create(slug="dup", published=True)
+    with pytest.raises(IntegrityError):
+        IndexedPartialPage.objects.create(slug="dup", published=True)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_partial_index_allows_duplicate_when_condition_not_met():
+    from testapp.models import IndexedPartialPage  # noqa: PLC0415
+
+    IndexedPartialPage.objects.create(slug="dup", published=False)
+    # Partial index: rows with published=False are outside the index,
+    # so duplicates among unpublished rows are allowed.
+    IndexedPartialPage.objects.create(slug="dup", published=False)
