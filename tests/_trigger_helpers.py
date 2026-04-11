@@ -2,7 +2,7 @@
 
 - `trigger_exists(name_fragment, table)` queries pg_trigger to check whether a
   trigger with a name containing `name_fragment` is attached to `table`.
-- `swap_trigger(model, index, new_trigger)` is a context manager that
+- `swap_trigger(model, new_trigger, *, index=0)` is a context manager that
   temporarily uninstalls the model's Nth `Meta.triggers` entry, installs
   `new_trigger`, and restores the original on exit.  This is what deferred /
   dynamic-condition tests use instead of copy-pasted try/finally blocks.
@@ -53,8 +53,8 @@ def swap_trigger(
     """
     original = model._meta.triggers[index]  # type: ignore[attr-defined]
     original.uninstall(model)
-    new_trigger.install(model)
     try:
+        new_trigger.install(model)
         yield new_trigger
     finally:
         new_trigger.uninstall(model)
