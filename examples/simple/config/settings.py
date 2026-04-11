@@ -3,6 +3,8 @@ SECRET_KEY = "example-only-not-for-production"
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
+    "pgtrigger",
+    "django_pgconstraints",
     "content",
 ]
 

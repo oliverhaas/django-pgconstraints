@@ -1,9 +1,10 @@
-"""Cross-table slug uniqueness between Pages and Posts.
+"""Chapter names unique per publisher, traversing two foreign keys.
 
-Pages and Posts share a URL namespace — a slug used by one must not be
-reused by the other.  Within-table uniqueness is handled by the normal
-``unique=True``; the ``UniqueConstraintTrigger`` enforces uniqueness
-*across* the two tables.
+Django's built-in ``UniqueConstraint`` can only reference columns on the
+current table, so it cannot enforce a uniqueness rule that follows a
+``Chapter -> Series -> Publisher`` chain.  ``UniqueConstraintTrigger``
+accepts ``__``-separated foreign-key paths and compiles them to a PL/pgSQL
+trigger.
 """
 
 from django.db import models
@@ -11,35 +12,23 @@ from django.db import models
 from django_pgconstraints import UniqueConstraintTrigger
 
 
-class Page(models.Model):
+class Publisher(models.Model):
+    name = models.CharField(max_length=100)
+
+
+class Series(models.Model):
     title = models.CharField(max_length=200)
-    slug = models.SlugField(unique=True)
+    publisher = models.ForeignKey(Publisher, on_delete=models.CASCADE)
+
+
+class Chapter(models.Model):
+    name = models.CharField(max_length=200)
+    series = models.ForeignKey(Series, on_delete=models.CASCADE)
 
     class Meta:
-        constraints = [
+        triggers = [
             UniqueConstraintTrigger(
-                field="slug",
-                across="content.Post",
-                name="content_page_unique_slug_across_post",
+                fields=["name", "series__publisher"],
+                name="chapter_unique_name_per_publisher",
             ),
         ]
-
-    def __str__(self):
-        return self.title
-
-
-class Post(models.Model):
-    title = models.CharField(max_length=200)
-    slug = models.SlugField(unique=True)
-
-    class Meta:
-        constraints = [
-            UniqueConstraintTrigger(
-                field="slug",
-                across="content.Page",
-                name="content_post_unique_slug_across_page",
-            ),
-        ]
-
-    def __str__(self):
-        return self.title
