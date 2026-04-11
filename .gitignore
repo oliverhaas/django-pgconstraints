@@ -16,3 +16,5 @@ CLAUDE.md
 site/
 *.sqlite3
 .DS_Store
+.worktrees/
+docs/superpowers/
