@@ -15,6 +15,8 @@ from django.db.models.sql import Query
 from django_pgconstraints.sql import _compile_q, _resolve_field_ref
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.db.models import Model, Q
     from django.db.models.expressions import BaseExpression
 
@@ -418,6 +420,53 @@ def _parse_fk_chain(chain: str, model: type[Model]) -> tuple[list[_FKHop], str]:
     return hops, parts[-1]
 
 
+def _build_chain_back_where(
+    chain_back: list[dict[str, str]],
+    qn: Callable[[str], str],
+    leaf_sql: str,
+) -> str:
+    """Build the WHERE clause that walks chain_back to a caller-supplied leaf.
+
+    ``chain_back`` is ordered ``child → ... → root``. Each entry describes
+    one hop: ``{fk_col (on this table), table (this model's table),
+    pk (this model's PK)}``.
+
+    ``leaf_sql`` is a complete SELECT that returns root-model PKs — the
+    rows whose state change should drive the cascade. Callers construct
+    this differently:
+
+    - ``_GeneratedFieldReverse.get_func`` builds a ``SELECT n.pk FROM
+      new_rows n JOIN old_rows o ON n.pk = o.pk WHERE n.watched IS
+      DISTINCT FROM o.watched`` so only rows whose watched column
+      actually changed are cascaded.
+
+    - ``refresh_dependent(queryset)`` builds a ``SELECT pk FROM root_table
+      WHERE <queryset's WHERE clause>`` so only rows the caller asked for
+      are reconciled.
+
+    Single-hop result:
+        "<first_fk_col>" IN (<leaf_sql>)
+
+    Multi-hop result (walking outward from ``root`` toward ``child``):
+        "<first_fk_col>" IN (
+            SELECT "<hop[1].pk>" FROM "<hop[1].table>"
+            WHERE "<hop[1].fk_col>" IN (... IN (<leaf_sql>))
+        )
+    """
+    if len(chain_back) == 1:
+        hop = chain_back[0]
+        return f"{qn(hop['fk_col'])} IN ({leaf_sql})"
+
+    last = chain_back[-1]
+    inner = f"SELECT {qn(last['pk'])} FROM {qn(last['table'])} WHERE {qn(last['fk_col'])} IN ({leaf_sql})"
+
+    for hop in reversed(chain_back[1:-1]):
+        inner = f"SELECT {qn(hop['pk'])} FROM {qn(hop['table'])} WHERE {qn(hop['fk_col'])} IN ({inner})"
+
+    first = chain_back[0]
+    return f"{qn(first['fk_col'])} IN ({inner})"
+
+
 class _GeneratedFieldReverse(pgtrigger.Trigger):
     """AFTER UPDATE trigger on a related model that recomputes the child's generated field.
 
@@ -475,7 +524,12 @@ class _GeneratedFieldReverse(pgtrigger.Trigger):
         # the child table name as the row reference).
         expr_sql = _compile_expression(self.expression, child_model, row_ref=child_table)
 
-        where = self._build_where_back(qn, trigger_pk_col, watched_col)
+        leaf_sql = (
+            f"SELECT n.{trigger_pk_col} FROM new_rows n "
+            f"JOIN old_rows o ON n.{trigger_pk_col} = o.{trigger_pk_col} "
+            f"WHERE n.{watched_col} IS DISTINCT FROM o.{watched_col}"
+        )
+        where = _build_chain_back_where(self.chain_back, qn, leaf_sql)
 
         return self.format_sql(f"""
             UPDATE {child_table}
@@ -483,53 +537,6 @@ class _GeneratedFieldReverse(pgtrigger.Trigger):
             WHERE {where};
             RETURN NULL;
         """)
-
-    def _build_where_back(self, qn: Any, trigger_pk_col: str, watched_col: str) -> str:  # noqa: ANN401
-        """Build WHERE clause tracing from child table back to trigger model.
-
-        chain_back is ordered from child→...→trigger_model.
-        Each entry: {fk_col (on this table), table (this model's table), pk (this model's PK)}.
-
-        The innermost leaf — previously `= NEW."id"` at row-level — is now a
-        subquery joining the transition tables on the trigger-model PK, filtered
-        by the IS DISTINCT FROM gate on the watched column. This restricts the
-        cascade to only those parent rows whose watched column actually changed,
-        not just the superset of rows that appeared in the UPDATE statement.
-
-        Single-hop example (Supplier.markup_pct → Part):
-          "supplier_id" IN (
-              SELECT n."id" FROM new_rows n JOIN old_rows o ON n."id" = o."id"
-              WHERE n."markup_pct" IS DISTINCT FROM o."markup_pct"
-          )
-
-        Two-hop example (Supplier.markup_pct → PurchaseItem via Part):
-          "part_id" IN (
-              SELECT "id" FROM "testapp_part" WHERE "supplier_id" IN (
-                  SELECT n."id" FROM new_rows n JOIN old_rows o ON n."id" = o."id"
-                  WHERE n."markup_pct" IS DISTINCT FROM o."markup_pct"
-              )
-          )
-        """
-        changed_pks = (
-            f"SELECT n.{trigger_pk_col} FROM new_rows n "
-            f"JOIN old_rows o ON n.{trigger_pk_col} = o.{trigger_pk_col} "
-            f"WHERE n.{watched_col} IS DISTINCT FROM o.{watched_col}"
-        )
-
-        if len(self.chain_back) == 1:
-            hop = self.chain_back[0]
-            return f"{qn(hop['fk_col'])} IN ({changed_pks})"
-
-        # Multi-hop: build nested IN subqueries, innermost first.
-        last = self.chain_back[-1]
-        inner = f"SELECT {qn(last['pk'])} FROM {qn(last['table'])} WHERE {qn(last['fk_col'])} IN ({changed_pks})"
-
-        # Intermediate hops, walking outward toward the child table.
-        for hop in reversed(self.chain_back[1:-1]):
-            inner = f"SELECT {qn(hop['pk'])} FROM {qn(hop['table'])} WHERE {qn(hop['fk_col'])} IN ({inner})"
-
-        first = self.chain_back[0]
-        return f"{qn(first['fk_col'])} IN ({inner})"
 
 
 class GeneratedFieldTrigger(pgtrigger.Trigger):
