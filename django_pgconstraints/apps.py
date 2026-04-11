@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 
 class PgConstraintsConfig(AppConfig):
     name = "django_pgconstraints"
-    default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self) -> None:
         _register_reverse_triggers()

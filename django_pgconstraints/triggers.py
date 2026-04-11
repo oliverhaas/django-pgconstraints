@@ -60,9 +60,6 @@ def _compile_expression(expr: BaseExpression, model: type[Model], row_ref: str =
     return sql
 
 
-_FK_PLACEHOLDER_COUNTER = 0
-
-
 def _replace_fk_refs(  # noqa: PLR0913
     expr: BaseExpression,
     model: type[Model],
@@ -73,16 +70,12 @@ def _replace_fk_refs(  # noqa: PLR0913
     placeholders: dict[str, str],
 ) -> BaseExpression:
     """Recursively replace FK-traversal F() refs with placeholder RawSQL."""
-    global _FK_PLACEHOLDER_COUNTER  # noqa: PLW0603
-
     if isinstance(expr, f_class):
         name: str = expr.name  # type: ignore[attr-defined]
         if "__" in name:
             resolved_sql, _ = _resolve_field_ref(name, model, qn, row_ref=row_ref)
-            _FK_PLACEHOLDER_COUNTER += 1
-            token = f"__pgc_fk_{_FK_PLACEHOLDER_COUNTER}__"
+            token = f"__pgc_fk_{len(placeholders)}__"
             placeholders[token] = resolved_sql
-            # Use a RawSQL with the placeholder so Django compiles it as-is.
             return rawsql_class(token, ())
         return expr
 
@@ -102,8 +95,6 @@ def _replace_fk_refs(  # noqa: PLR0913
 
 class UniqueConstraintTrigger(pgtrigger.Trigger):
     """Enforce uniqueness of field values, with FK-traversal and expression support.
-
-    Drop-in trigger replacement for Django's ``UniqueConstraint``.
 
     *fields* can contain:
     - plain field names (``"slug"``)
@@ -272,14 +263,13 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
 class CheckConstraintTrigger(pgtrigger.Trigger):
     """Enforce a check condition, with FK-traversal support.
 
-    Drop-in trigger replacement for Django's ``CheckConstraint`` that
-    additionally supports cross-table ``F()`` expressions in the condition
-    (e.g. ``Q(quantity__lte=F("product__stock"))``).
+    Supports cross-table ``F()`` expressions in the condition, e.g.
+    ``Q(quantity__lte=F("product__stock"))``.  Uses the same ``condition``
+    parameter name as Django's ``CheckConstraint``.
 
-    Uses the same ``condition`` parameter name as Django's ``CheckConstraint``.
-    For same-table conditions, ``validate()`` performs Python-level validation
-    via ``Q.check()``.  FK-traversal conditions skip Python validation and
-    rely on the database trigger.
+    For same-table conditions, ``validate()`` performs Python-level
+    validation via ``Q.check()``.  FK-traversal conditions skip Python
+    validation and rely on the database trigger.
     """
 
     when = pgtrigger.Before
