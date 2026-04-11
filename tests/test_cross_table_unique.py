@@ -7,7 +7,8 @@ import pytest
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection
-from django.db.models.functions import Lower
+from django.db.models import Deferrable
+from django.db.models.functions import Left, Lower
 from testapp.models import Page
 
 from django_pgconstraints import UniqueConstraintTrigger
@@ -188,10 +189,17 @@ class TestUniqueConstraintTriggerConstruction:
         t = UniqueConstraintTrigger(Lower("slug"), name="c")
         assert len(t.expressions) == 1
 
-    def test_fields_and_expressions_together(self):
-        t = UniqueConstraintTrigger(Lower("slug"), fields=["section"], name="c")
-        assert t.fields == ["section"]
-        assert len(t.expressions) == 1
+    def test_fields_and_expressions_mutually_exclusive(self):
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            UniqueConstraintTrigger(Lower("slug"), fields=["section"], name="c")
+
+    def test_expressions_cannot_be_deferred(self):
+        with pytest.raises(ValueError, match="cannot be deferred"):
+            UniqueConstraintTrigger(
+                Lower("slug"),
+                deferrable=Deferrable.DEFERRED,
+                name="c",
+            )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -215,5 +223,17 @@ class TestUniqueConstraintTriggerExpressions:
         try:
             Page.objects.create(slug="alpha")
             Page.objects.create(slug="beta")
+        finally:
+            trigger.uninstall(Page)
+
+    def test_parametrized_expression(self):
+        """Left("slug", 3) — expressions with SQL parameters work correctly."""
+        trigger = UniqueConstraintTrigger(Left("slug", 3), name="page_slug_prefix")
+        trigger.install(Page)
+        try:
+            Page.objects.create(slug="abc-one")
+            Page.objects.create(slug="abd-two")  # different prefix, allowed
+            with pytest.raises(IntegrityError):
+                Page.objects.create(slug="abc-three")  # same "abc" prefix
         finally:
             trigger.uninstall(Page)

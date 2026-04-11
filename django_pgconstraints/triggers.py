@@ -81,6 +81,12 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         if not fields and not expressions:
             msg = "At least one field or expression is required."
             raise ValueError(msg)
+        if fields and expressions:
+            msg = "UniqueConstraintTrigger.fields and expressions are mutually exclusive."
+            raise ValueError(msg)
+        if expressions and deferrable:
+            msg = "UniqueConstraintTrigger with expressions cannot be deferred."
+            raise ValueError(msg)
 
         self.fields = list(fields)
         self.expressions = list(expressions)
