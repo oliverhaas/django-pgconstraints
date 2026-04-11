@@ -37,11 +37,11 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         self.across_field = across_field or field
         super().__init__(**kwargs)
 
-    def get_func(self, model: type[Model]) -> str:
+    def get_func(self, model: Model) -> str:
         from django.apps import apps  # noqa: PLC0415
 
         qn = pgtrigger.utils.quote
-        column = qn(model._meta.get_field(self.field).column)  # noqa: SLF001
+        column = qn(model._meta.get_field(self.field).column)  # type: ignore[union-attr]  # noqa: SLF001
 
         app_label, model_name = self.across.split(".")
         across_model = apps.get_model(app_label, model_name)
@@ -80,9 +80,9 @@ class CheckConstraintTrigger(pgtrigger.Trigger):
         self.check = check
         super().__init__(**kwargs)
 
-    def get_func(self, model: type[Model]) -> str:
+    def get_func(self, model: Model) -> str:
         qn = pgtrigger.utils.quote
-        check_sql = _check_q_to_sql(self.check, model, qn)
+        check_sql = _check_q_to_sql(self.check, model, qn)  # type: ignore[arg-type]
 
         return self.format_sql(f"""
             IF NOT ({check_sql}) THEN
@@ -110,14 +110,14 @@ class AllowedTransitions(pgtrigger.Trigger):
         self.transitions = transitions
         super().__init__(**kwargs)
 
-    def get_condition(self, model: type[Model]) -> pgtrigger.Condition:
+    def get_condition(self, model: Model) -> pgtrigger.Condition:
         qn = pgtrigger.utils.quote
-        column = qn(model._meta.get_field(self.field).column)  # noqa: SLF001
+        column = qn(model._meta.get_field(self.field).column)  # type: ignore[union-attr]  # noqa: SLF001
         return pgtrigger.Condition(f"OLD.{column} IS DISTINCT FROM NEW.{column}")
 
-    def get_func(self, model: type[Model]) -> str:
+    def get_func(self, model: Model) -> str:
         qn = pgtrigger.utils.quote
-        column = qn(model._meta.get_field(self.field).column)  # noqa: SLF001
+        column = qn(model._meta.get_field(self.field).column)  # type: ignore[union-attr]  # noqa: SLF001
 
         conditions: list[str] = []
         for from_state, to_states in self.transitions.items():
@@ -163,17 +163,17 @@ class Immutable(pgtrigger.Trigger):
         self.when_condition = when_condition
         super().__init__(**kwargs)
 
-    def get_func(self, model: type[Model]) -> str:
+    def get_func(self, model: Model) -> str:
         qn = pgtrigger.utils.quote
 
         changed_parts = []
         for field_name in self.fields:
-            col = qn(model._meta.get_field(field_name).column)  # noqa: SLF001
+            col = qn(model._meta.get_field(field_name).column)  # type: ignore[union-attr]  # noqa: SLF001
             changed_parts.append(f"OLD.{col} IS DISTINCT FROM NEW.{col}")
         changed_check = " OR ".join(changed_parts)
 
         if self.when_condition is not None:
-            when_sql = _q_to_sql(self.when_condition, model, qn, row_ref="OLD")
+            when_sql = _q_to_sql(self.when_condition, model, qn, row_ref="OLD")  # type: ignore[arg-type]
             full_check = f"({when_sql}) AND ({changed_check})"
         else:
             full_check = changed_check
@@ -209,11 +209,11 @@ class _MaintainedCountBase(pgtrigger.Trigger):
         self.fk_field = fk_field
         super().__init__(**kwargs)
 
-    def _resolve_target(self, model: type[Model]) -> tuple[str, str, str, str]:
+    def _resolve_target(self, model: Model) -> tuple[str, str, str, str]:
         from django.apps import apps  # noqa: PLC0415
 
         qn = pgtrigger.utils.quote
-        fk_col = qn(model._meta.get_field(self.fk_field).column)  # noqa: SLF001
+        fk_col = qn(model._meta.get_field(self.fk_field).column)  # type: ignore[union-attr]  # noqa: SLF001
 
         app_label, model_name = self.target.split(".")
         target_model = apps.get_model(app_label, model_name)
@@ -228,7 +228,7 @@ class _MaintainedCountInsert(_MaintainedCountBase):
     when = pgtrigger.After
     operation = pgtrigger.Insert
 
-    def get_func(self, model: type[Model]) -> str:
+    def get_func(self, model: Model) -> str:
         fk_col, t_table, t_pk, t_cnt = self._resolve_target(model)
         return self.format_sql(f"""
             IF NEW.{fk_col} IS NOT NULL THEN
@@ -243,7 +243,7 @@ class _MaintainedCountDelete(_MaintainedCountBase):
     when = pgtrigger.After
     operation = pgtrigger.Delete
 
-    def get_func(self, model: type[Model]) -> str:
+    def get_func(self, model: Model) -> str:
         fk_col, t_table, t_pk, t_cnt = self._resolve_target(model)
         return self.format_sql(f"""
             IF OLD.{fk_col} IS NOT NULL THEN
@@ -258,7 +258,7 @@ class _MaintainedCountUpdate(_MaintainedCountBase):
     when = pgtrigger.After
     operation = pgtrigger.Update
 
-    def get_func(self, model: type[Model]) -> str:
+    def get_func(self, model: Model) -> str:
         fk_col, t_table, t_pk, t_cnt = self._resolve_target(model)
         return self.format_sql(f"""
             IF OLD.{fk_col} IS DISTINCT FROM NEW.{fk_col} THEN
