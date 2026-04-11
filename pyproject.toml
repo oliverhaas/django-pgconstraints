@@ -32,6 +32,7 @@ Changelog = "https://oliverhaas.github.io/django-pgconstraints/reference/changel
 
 [dependency-groups]
 dev = [
+  "factory-boy==3.3.3",
   "mypy==1.20.0",
   "django-stubs==6.0.2",
   "pre-commit==4.5.1",
@@ -105,6 +106,10 @@ pythonpath = ["tests"]
 addopts = "--cov=django_pgconstraints --cov-report=term-missing --cov-report=xml --no-cov-on-fail"
 testpaths = ["tests"]
 xfail_strict = true
+markers = [
+  "unit: fast, isolated tests with no database access",
+  "integration: tests that hit the real PostgreSQL database via triggers",
+]
 
 [tool.coverage.run]
 omit = ["tests/*"]
