@@ -5,7 +5,13 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection
 from testapp.models import Order
 
-from django_pgconstraints import AllowedTransitions
+from django_pgconstraints import validate_allowed_transition
+
+TRANSITIONS = {
+    "draft": ["pending"],
+    "pending": ["shipped"],
+    "shipped": ["delivered"],
+}
 
 # ---------------------------------------------------------------------------
 # DB-level enforcement
@@ -64,57 +70,27 @@ class TestAllowedTransitionsValidation:
     def test_validate_disallowed(self):
         order = Order.objects.create(status="draft")
         order.status = "shipped"
-        constraint = Order._meta.constraints[0]
         with pytest.raises(ValidationError) as exc_info:
-            constraint.validate(Order, order)
+            validate_allowed_transition(instance=order, field="status", transitions=TRANSITIONS)
         assert exc_info.value.code == "invalid_transition"
 
     def test_validate_allowed(self):
         order = Order.objects.create(status="draft")
         order.status = "pending"
-        constraint = Order._meta.constraints[0]
-        constraint.validate(Order, order)  # should not raise
+        validate_allowed_transition(instance=order, field="status", transitions=TRANSITIONS)  # should not raise
 
     def test_validate_new_instance(self):
         order = Order(status="shipped")
-        constraint = Order._meta.constraints[0]
-        constraint.validate(Order, order)  # new instances always pass
+        validate_allowed_transition(
+            instance=order,
+            field="status",
+            transitions=TRANSITIONS,
+        )  # new instances always pass
 
     def test_validate_same_value(self):
         order = Order.objects.create(status="draft")
         order.status = "draft"
-        constraint = Order._meta.constraints[0]
-        constraint.validate(Order, order)  # no change — always pass
-
-    def test_validate_skips_excluded(self):
-        order = Order.objects.create(status="draft")
-        order.status = "shipped"
-        constraint = Order._meta.constraints[0]
-        constraint.validate(Order, order, exclude={"status"})  # should not raise
-
-
-# ---------------------------------------------------------------------------
-# Serialisation
-# ---------------------------------------------------------------------------
-
-
-class TestAllowedTransitionsDeconstruct:
-    def test_deconstruct(self):
-        transitions = {"draft": ["pending"], "pending": ["shipped"]}
-        constraint = AllowedTransitions(field="status", transitions=transitions, name="c")
-        path, args, kwargs = constraint.deconstruct()
-        assert path == "django_pgconstraints.AllowedTransitions"
-        assert args == ()
-        assert kwargs["field"] == "status"
-        assert kwargs["transitions"] == transitions
-        assert kwargs["name"] == "c"
-
-    def test_roundtrip(self):
-        transitions = {"draft": ["pending"], "pending": ["shipped"]}
-        original = AllowedTransitions(field="status", transitions=transitions, name="c")
-        _, args, kwargs = original.deconstruct()
-        restored = AllowedTransitions(*args, **kwargs)
-        assert original == restored
+        validate_allowed_transition(instance=order, field="status", transitions=TRANSITIONS)  # no change — always pass
 
 
 # ---------------------------------------------------------------------------
@@ -124,23 +100,23 @@ class TestAllowedTransitionsDeconstruct:
 
 @pytest.mark.django_db(transaction=True)
 class TestAllowedTransitionsLifecycle:
-    def _trigger_exists(self, name, table):
+    def _trigger_exists(self, name_fragment, table):
         with connection.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM information_schema.triggers WHERE trigger_name = %s AND event_object_table = %s",
-                [name, table],
+                "SELECT 1 FROM pg_trigger t "
+                "JOIN pg_class c ON t.tgrelid = c.oid "
+                "WHERE t.tgname LIKE %s AND c.relname = %s",
+                [f"%{name_fragment}%", table],
             )
             return cur.fetchone() is not None
 
     def test_trigger_created(self):
-        assert self._trigger_exists("testapp_order_status_transitions", "testapp_order")
+        assert self._trigger_exists("order_status_transitions", "testapp_order")
 
     def test_remove_and_recreate(self):
-        constraint = Order._meta.constraints[0]
-        with connection.schema_editor() as editor:
-            editor.remove_constraint(Order, constraint)
-        assert not self._trigger_exists("testapp_order_status_transitions", "testapp_order")
+        trigger = Order._meta.triggers[0]
+        trigger.uninstall(Order)
+        assert not self._trigger_exists("order_status_transitions", "testapp_order")
 
-        with connection.schema_editor() as editor:
-            editor.add_constraint(Order, constraint)
-        assert self._trigger_exists("testapp_order_status_transitions", "testapp_order")
+        trigger.install(Order)
+        assert self._trigger_exists("order_status_transitions", "testapp_order")

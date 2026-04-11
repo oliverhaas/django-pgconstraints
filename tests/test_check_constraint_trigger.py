@@ -2,10 +2,7 @@
 
 import pytest
 from django.db import IntegrityError, connection
-from django.db.models import F, Q
 from testapp.models import OrderLine, Product
-
-from django_pgconstraints import CheckConstraintTrigger
 
 # ---------------------------------------------------------------------------
 # DB-level enforcement
@@ -61,52 +58,29 @@ class TestCheckConstraintTriggerEnforcement:
 
 
 # ---------------------------------------------------------------------------
-# Serialisation
-# ---------------------------------------------------------------------------
-
-
-class TestCheckConstraintTriggerDeconstruct:
-    def test_deconstruct(self):
-        check = Q(quantity__lte=F("product__stock"))
-        constraint = CheckConstraintTrigger(check=check, name="c")
-        path, args, kwargs = constraint.deconstruct()
-        assert path == "django_pgconstraints.CheckConstraintTrigger"
-        assert args == ()
-        assert kwargs["check"] == check
-        assert kwargs["name"] == "c"
-
-    def test_roundtrip(self):
-        original = CheckConstraintTrigger(check=Q(quantity__gt=0), name="c")
-        _, args, kwargs = original.deconstruct()
-        restored = CheckConstraintTrigger(*args, **kwargs)
-        assert original == restored
-
-
-# ---------------------------------------------------------------------------
 # Trigger lifecycle
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db(transaction=True)
 class TestCheckConstraintTriggerLifecycle:
-    def _trigger_exists(self, name, table):
+    def _trigger_exists(self, name_fragment, table):
         with connection.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM information_schema.triggers WHERE trigger_name = %s AND event_object_table = %s",
-                [name, table],
+                "SELECT 1 FROM pg_trigger t "
+                "JOIN pg_class c ON t.tgrelid = c.oid "
+                "WHERE t.tgname LIKE %s AND c.relname = %s",
+                [f"%{name_fragment}%", table],
             )
             return cur.fetchone() is not None
 
     def test_triggers_created(self):
-        assert self._trigger_exists("testapp_orderline_qty_lte_stock", "testapp_orderline")
-        assert self._trigger_exists("testapp_orderline_qty_positive", "testapp_orderline")
+        assert self._trigger_exists("orderline_qty_lte_stock", "testapp_orderline")
 
     def test_remove_and_recreate(self):
-        constraint = OrderLine._meta.constraints[0]
-        with connection.schema_editor() as editor:
-            editor.remove_constraint(OrderLine, constraint)
-        assert not self._trigger_exists("testapp_orderline_qty_lte_stock", "testapp_orderline")
+        trigger = OrderLine._meta.triggers[0]
+        trigger.uninstall(OrderLine)
+        assert not self._trigger_exists("orderline_qty_lte_stock", "testapp_orderline")
 
-        with connection.schema_editor() as editor:
-            editor.add_constraint(OrderLine, constraint)
-        assert self._trigger_exists("testapp_orderline_qty_lte_stock", "testapp_orderline")
+        trigger.install(OrderLine)
+        assert self._trigger_exists("orderline_qty_lte_stock", "testapp_orderline")

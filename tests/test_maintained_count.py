@@ -4,8 +4,6 @@ import pytest
 from django.db import connection
 from testapp.models import Author, Book
 
-from django_pgconstraints import MaintainedCount
-
 # ---------------------------------------------------------------------------
 # DB-level enforcement
 # ---------------------------------------------------------------------------
@@ -74,42 +72,10 @@ class TestMaintainedCountEnforcement:
                 Book(title="B1", author=author),
                 Book(title="B2", author=author),
                 Book(title="B3", author=author),
-            ]
+            ],
         )
         author.refresh_from_db()
         assert author.book_count == 3
-
-
-# ---------------------------------------------------------------------------
-# Serialisation
-# ---------------------------------------------------------------------------
-
-
-class TestMaintainedCountDeconstruct:
-    def test_deconstruct(self):
-        constraint = MaintainedCount(
-            target="myapp.Post",
-            target_field="comment_count",
-            fk_field="post",
-            name="c",
-        )
-        path, args, kwargs = constraint.deconstruct()
-        assert path == "django_pgconstraints.MaintainedCount"
-        assert args == ()
-        assert kwargs["target"] == "myapp.Post"
-        assert kwargs["target_field"] == "comment_count"
-        assert kwargs["fk_field"] == "post"
-
-    def test_roundtrip(self):
-        original = MaintainedCount(
-            target="myapp.Post",
-            target_field="comment_count",
-            fk_field="post",
-            name="c",
-        )
-        _, args, kwargs = original.deconstruct()
-        restored = MaintainedCount(*args, **kwargs)
-        assert original == restored
 
 
 # ---------------------------------------------------------------------------
@@ -119,34 +85,34 @@ class TestMaintainedCountDeconstruct:
 
 @pytest.mark.django_db(transaction=True)
 class TestMaintainedCountLifecycle:
-    def _trigger_exists(self, name, table):
+    def _trigger_exists(self, name_fragment, table):
         with connection.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM information_schema.triggers WHERE trigger_name = %s AND event_object_table = %s",
-                [name, table],
+                "SELECT 1 FROM pg_trigger t "
+                "JOIN pg_class c ON t.tgrelid = c.oid "
+                "WHERE t.tgname LIKE %s AND c.relname = %s",
+                [f"%{name_fragment}%", table],
             )
             return cur.fetchone() is not None
 
     def test_triggers_created(self):
-        base = "testapp_maintain_author_book_count"
         table = "testapp_book"
-        assert self._trigger_exists(f"{base}_ins", table)
-        assert self._trigger_exists(f"{base}_del", table)
-        assert self._trigger_exists(f"{base}_upd", table)
+        assert self._trigger_exists("maintain_author_book_count_ins", table)
+        assert self._trigger_exists("maintain_author_book_count_del", table)
+        assert self._trigger_exists("maintain_author_book_count_upd", table)
 
     def test_remove_and_recreate(self):
-        constraint = Book._meta.constraints[0]
-        base = "testapp_maintain_author_book_count"
+        triggers = Book._meta.triggers
         table = "testapp_book"
 
-        with connection.schema_editor() as editor:
-            editor.remove_constraint(Book, constraint)
-        assert not self._trigger_exists(f"{base}_ins", table)
-        assert not self._trigger_exists(f"{base}_del", table)
-        assert not self._trigger_exists(f"{base}_upd", table)
+        for trigger in triggers:
+            trigger.uninstall(Book)
+        assert not self._trigger_exists("maintain_author_book_count_ins", table)
+        assert not self._trigger_exists("maintain_author_book_count_del", table)
+        assert not self._trigger_exists("maintain_author_book_count_upd", table)
 
-        with connection.schema_editor() as editor:
-            editor.add_constraint(Book, constraint)
-        assert self._trigger_exists(f"{base}_ins", table)
-        assert self._trigger_exists(f"{base}_del", table)
-        assert self._trigger_exists(f"{base}_upd", table)
+        for trigger in triggers:
+            trigger.install(Book)
+        assert self._trigger_exists("maintain_author_book_count_ins", table)
+        assert self._trigger_exists("maintain_author_book_count_del", table)
+        assert self._trigger_exists("maintain_author_book_count_upd", table)

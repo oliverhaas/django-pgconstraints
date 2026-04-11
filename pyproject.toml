@@ -22,7 +22,7 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
   "Typing :: Typed",
 ]
-dependencies = ["Django>=5.2,<7"]
+dependencies = ["Django>=5.2,<7", "django-pgtrigger>=4.17.0"]
 
 [project.urls]
 Homepage = "https://github.com/oliverhaas/django-pgconstraints"

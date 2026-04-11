@@ -259,6 +259,7 @@ version = "0.1.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "django" },
+    { name = "django-pgtrigger" },
 ]
 
 [package.dev-dependencies]
@@ -282,7 +283,10 @@ docs = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "django", specifier = ">=5.2,<7" }]
+requires-dist = [
+    { name = "django", specifier = ">=5.2,<7" },
+    { name = "django-pgtrigger", specifier = ">=4.17.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [
@@ -302,6 +306,18 @@ docs = [
     { name = "mike", specifier = "==2.1.4" },
     { name = "mkdocs", specifier = "==1.6.1" },
     { name = "mkdocs-material", specifier = "==9.7.6" },
+]
+
+[[package]]
+name = "django-pgtrigger"
+version = "4.17.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/45/3d/ea55015e2e2a8e2230c6a056768512a9660573f8926f87671f166d455936/django_pgtrigger-4.17.0.tar.gz", hash = "sha256:55d297a756b5b6a8e0c533d3323fda1589c699e7d14aa3fff7fa7d774c46363c", size = 32200, upload-time = "2025-12-04T15:46:06.587Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/47/13c0c23c134cd0f0b0addfbc3ef1477f90d891184d21689f9074b794b00c/django_pgtrigger-4.17.0-py3-none-any.whl", hash = "sha256:06048cdeb57e20987fd0bf7dd673512a1413a08868eea248d70dbb970e967175", size = 36326, upload-time = "2025-12-04T15:46:05.427Z" },
 ]
 
 [[package]]

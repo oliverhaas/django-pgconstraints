@@ -16,11 +16,11 @@ class Page(models.Model):
     slug = models.SlugField(unique=True)
 
     class Meta:
-        constraints = [
+        triggers = [
             UniqueConstraintTrigger(
                 field="slug",
                 across="testapp.Post",
-                name="testapp_page_unique_slug_across_post",
+                name="page_unique_slug_across_post",
             ),
         ]
 
@@ -29,11 +29,11 @@ class Post(models.Model):
     slug = models.SlugField(unique=True)
 
     class Meta:
-        constraints = [
+        triggers = [
             UniqueConstraintTrigger(
                 field="slug",
                 across="testapp.Page",
-                name="testapp_post_unique_slug_across_page",
+                name="post_unique_slug_across_page",
             ),
         ]
 
@@ -45,7 +45,7 @@ class Order(models.Model):
     status = models.CharField(max_length=20, default="draft")
 
     class Meta:
-        constraints = [
+        triggers = [
             AllowedTransitions(
                 field="status",
                 transitions={
@@ -53,7 +53,7 @@ class Order(models.Model):
                     "pending": ["shipped", "cancelled"],
                     "shipped": ["delivered"],
                 },
-                name="testapp_order_status_transitions",
+                name="order_status_transitions",
             ),
         ]
 
@@ -66,11 +66,11 @@ class Invoice(models.Model):
     status = models.CharField(max_length=20, default="draft")
 
     class Meta:
-        constraints = [
+        triggers = [
             Immutable(
                 fields=["amount"],
-                when=Q(status="paid"),
-                name="testapp_invoice_immutable_amount_when_paid",
+                when_condition=Q(status="paid"),
+                name="invoice_immutable_amount_when_paid",
             ),
         ]
 
@@ -88,12 +88,12 @@ class Book(models.Model):
     author = models.ForeignKey(Author, on_delete=models.CASCADE)
 
     class Meta:
-        constraints = [
-            MaintainedCount(
+        triggers = [
+            *MaintainedCount.triggers(
+                name="maintain_author_book_count",
                 target="testapp.Author",
                 target_field="book_count",
                 fk_field="author",
-                name="testapp_maintain_author_book_count",
             ),
         ]
 
@@ -112,13 +112,13 @@ class OrderLine(models.Model):
     quantity = models.IntegerField()
 
     class Meta:
-        constraints = [
+        triggers = [
             CheckConstraintTrigger(
                 check=Q(quantity__lte=F("product__stock")),
-                name="testapp_orderline_qty_lte_stock",
+                name="orderline_qty_lte_stock",
             ),
             CheckConstraintTrigger(
                 check=Q(quantity__gt=0),
-                name="testapp_orderline_qty_positive",
+                name="orderline_qty_positive",
             ),
         ]

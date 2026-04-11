@@ -8,7 +8,7 @@ import pytest
 from django.db.models import Q
 
 from django_pgconstraints import AllowedTransitions, Immutable
-from django_pgconstraints.constraints import _make_fn_name, _sql_value
+from django_pgconstraints.sql import _sql_value
 
 # ---------------------------------------------------------------------------
 # _sql_value
@@ -68,60 +68,20 @@ class TestSqlValue:
 
 
 # ---------------------------------------------------------------------------
-# _make_fn_name
+# AllowedTransitions construction
 # ---------------------------------------------------------------------------
 
 
-class TestMakeFnName:
-    def test_short_name(self):
-        result = _make_fn_name("my_table", "my_constraint")
-        assert result == "pgc_fn_my_table_my_constraint"
-
-    def test_long_name_is_truncated(self):
-        result = _make_fn_name("a" * 30, "b" * 30)
-        assert len(result.encode()) <= 63
-
-    def test_long_name_with_suffix(self):
-        result = _make_fn_name("a" * 30, "b" * 30, "_ins")
-        assert len(result.encode()) <= 63
-        assert result.endswith("_ins")
-
-    def test_deterministic(self):
-        """Same inputs always produce the same output."""
-        a = _make_fn_name("a" * 30, "b" * 30, "_del")
-        b = _make_fn_name("a" * 30, "b" * 30, "_del")
-        assert a == b
-
-    def test_different_inputs_no_collision(self):
-        a = _make_fn_name("table_a", "x" * 50)
-        b = _make_fn_name("table_b", "x" * 50)
-        assert a != b
-
-
-# ---------------------------------------------------------------------------
-# AllowedTransitions.__hash__
-# ---------------------------------------------------------------------------
-
-
-class TestAllowedTransitionsHash:
-    def test_hash_does_not_crash(self):
-        """Hashing should not raise TypeError from unhashable list values."""
-        c = AllowedTransitions(
+class TestAllowedTransitionsConstruction:
+    def test_basic_construction(self):
+        t = AllowedTransitions(
             field="status",
             transitions={"draft": ["pending"], "pending": ["shipped"]},
             name="c",
         )
-        # This used to crash with TypeError because dict values are lists.
-        h = hash(c)
-        assert isinstance(h, int)
-
-    def test_hashable_in_set(self):
-        c = AllowedTransitions(
-            field="status",
-            transitions={"draft": ["pending"]},
-            name="c",
-        )
-        assert {c}
+        assert t.field == "status"
+        assert t.transitions == {"draft": ["pending"], "pending": ["shipped"]}
+        assert t.name == "c"
 
 
 # ---------------------------------------------------------------------------
@@ -129,31 +89,23 @@ class TestAllowedTransitionsHash:
 # ---------------------------------------------------------------------------
 
 
-class TestImmutableValidation:
+class TestImmutableInit:
     def test_empty_fields_raises(self):
         with pytest.raises(ValueError, match="at least one field"):
             Immutable(fields=[], name="c")
 
 
 # ---------------------------------------------------------------------------
-# Immutable.__hash__ includes when
+# Immutable construction
 # ---------------------------------------------------------------------------
 
 
-class TestImmutableHash:
-    def test_different_when_different_hash(self):
-        a = Immutable(fields=["amount"], when=Q(status="paid"), name="c")
-        b = Immutable(fields=["amount"], when=Q(status="draft"), name="c")
-        # Different when → should (very likely) have different hashes.
-        # They are definitely not equal, so hash collision is possible but
-        # at least the hash should not be identical by construction.
-        assert a != b
-        # We can't guarantee different hash, but we CAN check it doesn't crash.
-        hash(a)
-        hash(b)
+class TestImmutableConstruction:
+    def test_with_when_condition(self):
+        t = Immutable(fields=["amount"], when_condition=Q(status="paid"), name="c")
+        assert t.fields == ["amount"]
+        assert t.when_condition == Q(status="paid")
 
-    def test_same_when_same_hash(self):
-        a = Immutable(fields=["amount"], when=Q(status="paid"), name="c")
-        b = Immutable(fields=["amount"], when=Q(status="paid"), name="c")
-        assert a == b
-        assert hash(a) == hash(b)
+    def test_without_when_condition(self):
+        t = Immutable(fields=["amount"], name="c")
+        assert t.when_condition is None

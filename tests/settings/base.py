@@ -5,6 +5,7 @@ SECRET_KEY = "test-secret-key"
 INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
+    "pgtrigger",
     "testapp",
 ]
 
