@@ -109,6 +109,38 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
 
     Set ``deferrable=Deferrable.DEFERRED`` for a constraint trigger that
     fires at commit time (default ``None`` — fires immediately).
+
+    **Index backing (``index=True``):**
+
+    When ``index`` is set to True, a matching ``CREATE UNIQUE INDEX`` is
+    installed alongside the trigger. The index makes uniqueness O(log n)
+    per insert (vs. the trigger's O(n) ``EXISTS`` scan), lets the query
+    planner use the column set for ordinary SELECT queries, and rejects
+    duplicates at the PG catalog level before the trigger fires. The
+    trigger stays installed as a second layer of defense and for
+    :meth:`validate` / Django ``full_clean`` support.
+
+    Supported index-backed configurations:
+
+    - Plain fields: ``fields=["slug"]``
+    - Composite: ``fields=["slug", "section"]``
+    - Functional: ``Lower("slug")`` as an expression
+    - Partial: ``fields=["slug"], condition=Q(published=True)``
+    - NULLS NOT DISTINCT (PG 15+): ``fields=["slug"], nulls_distinct=False``
+
+    Not supported with ``index=True`` (raises ``ValueError`` at
+    construction):
+
+    - FK-traversal ``__`` in ``fields`` — unique indexes only cover
+      same-table columns.
+    - FK-traversal ``F()`` references in expressions — same reason.
+    - ``deferrable=Deferrable.DEFERRED`` — PG unique indexes cannot be
+      deferred.
+
+    **Trade-off:** when ``index=True`` rejects a duplicate, the error
+    comes from PostgreSQL's native index-level message, not the
+    trigger's ``violation_error_message``. If you need the custom error
+    message, use ``index=False`` and rely on the trigger alone.
     """
 
     when = pgtrigger.After
