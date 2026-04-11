@@ -26,19 +26,17 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
     Drop-in trigger replacement for Django's ``UniqueConstraint`` that can
     also enforce uniqueness *across* a second table.
 
-    Supports the same core parameters as ``UniqueConstraint``:
-    ``fields``, ``condition``, ``violation_error_code``,
-    ``violation_error_message``.
-
     When ``across`` is provided, the trigger checks the other table for
     duplicates.  Each table in the pair needs its own trigger pointing at
     the other.  Without ``across``, it enforces uniqueness within the
     same table (like ``UniqueConstraint``).
+
+    Set ``deferrable=True`` for a constraint trigger that fires at commit
+    time (default ``False`` — fires immediately like ``UniqueConstraint``).
     """
 
     when = pgtrigger.After
     operation = pgtrigger.Insert | pgtrigger.Update
-    timing = pgtrigger.Deferred
 
     violation_error_code: str = "unique"
     violation_error_message: str = "This value already exists."
@@ -46,39 +44,33 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
     def __init__(  # noqa: PLR0913
         self,
         *,
-        fields: list[str] | tuple[str, ...] | None = None,
-        field: str | None = None,
+        fields: list[str] | tuple[str, ...],
         across: str | None = None,
         across_field: str | None = None,
         condition: Q | None = None,
+        deferrable: bool = False,
+        nulls_distinct: bool | None = None,
         violation_error_code: str | None = None,
         violation_error_message: str | None = None,
         **kwargs: Any,  # noqa: ANN401
     ) -> None:
-        # Accept both field= (single, legacy) and fields= (list, Django-style)
-        if fields is not None and field is not None:
-            msg = "Specify either 'fields' or 'field', not both."
-            raise ValueError(msg)
-        if fields is not None:
-            self.fields = list(fields)
-        elif field is not None:
-            self.fields = [field]
-        else:
-            msg = "Either 'fields' or 'field' is required."
-            raise ValueError(msg)
-
-        if not self.fields:
+        if not fields:
             msg = "At least one field is required."
             raise ValueError(msg)
 
+        self.fields = list(fields)
         self.across = across
         self.across_field = across_field
         self.unique_condition = condition
+        self.nulls_distinct = nulls_distinct
 
         if violation_error_code is not None:
             self.violation_error_code = violation_error_code
         if violation_error_message is not None:
             self.violation_error_message = violation_error_message
+
+        if deferrable:
+            kwargs.setdefault("timing", pgtrigger.Deferred)
 
         super().__init__(**kwargs)
 
@@ -95,6 +87,32 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
             return self._cross_table_func(model, qn, columns, condition_sql)
         return self._same_table_func(model, qn, columns, condition_sql)
 
+    def _null_guard(self, columns: list[str]) -> str:
+        """Return SQL that skips or includes NULL values based on nulls_distinct."""
+        if self.nulls_distinct is False:
+            # NULLs are NOT distinct — two NULLs violate uniqueness.
+            # No null guard needed; the WHERE clause uses IS NOT DISTINCT FROM.
+            return ""
+        # Default: NULLs are distinct — skip if ANY field is NULL.
+        null_checks = " OR ".join(f"NEW.{col} IS NULL" for col in columns)
+        return f"IF NOT ({null_checks}) THEN"
+
+    def _where_clause(self, lhs_columns: list[str], rhs_columns: list[str]) -> str:
+        """Build WHERE matching clause, NULL-safe when nulls_distinct=False."""
+        if self.nulls_distinct is False:
+            parts = [f"{lhs} IS NOT DISTINCT FROM NEW.{rhs}" for lhs, rhs in zip(lhs_columns, rhs_columns, strict=True)]
+        else:
+            parts = [f"{lhs} = NEW.{rhs}" for lhs, rhs in zip(lhs_columns, rhs_columns, strict=True)]
+        return " AND ".join(parts)
+
+    @staticmethod
+    def _lock_expr(columns: list[str]) -> str:
+        """Advisory lock expression on hash of field values."""
+        if len(columns) == 1:
+            return f"hashtext(NEW.{columns[0]}::text)"
+        concat_parts = " || ',' || ".join(f"COALESCE(NEW.{col}::text, '')" for col in columns)
+        return f"hashtext({concat_parts})"
+
     def _cross_table_func(self, model: Model, qn: Any, columns: list[str], condition_sql: str) -> str:  # noqa: ARG002, ANN401
         from django.apps import apps  # noqa: PLC0415
 
@@ -105,27 +123,18 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         across_fields = [self.across_field] if self.across_field else self.fields
         across_columns = [qn(across_model._meta.get_field(f).column) for f in across_fields]  # noqa: SLF001
 
-        # NULL check: skip if ANY field is NULL
-        null_checks = " OR ".join(f"NEW.{col} IS NULL" for col in columns)
+        where_clause = self._where_clause(across_columns, columns)
+        lock_expr = self._lock_expr(columns)
+        null_guard = self._null_guard(columns)
 
-        # WHERE clause matching across columns to NEW values
-        where_parts = [f"{ac} = NEW.{col}" for ac, col in zip(across_columns, columns, strict=True)]
-        where_clause = " AND ".join(where_parts)
-
-        # Advisory lock on hash of all field values for concurrency safety
-        if len(columns) == 1:
-            lock_expr = f"hashtext(NEW.{columns[0]}::text)"
-        else:
-            concat_parts = " || ',' || ".join(f"COALESCE(NEW.{col}::text, '')" for col in columns)
-            lock_expr = f"hashtext({concat_parts})"
-
-        # Condition guard
         cond_open = f"IF {condition_sql} THEN " if condition_sql else ""
         cond_close = "END IF; " if condition_sql else ""
+        null_open = f"{null_guard} " if null_guard else ""
+        null_close = "END IF; " if null_guard else ""
 
         return self.format_sql(f"""
             {cond_open}
-            IF NOT ({null_checks}) THEN
+            {null_open}
                 PERFORM pg_advisory_xact_lock({lock_expr});
                 IF EXISTS (
                     SELECT 1 FROM {across_table}
@@ -136,7 +145,7 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
                         'Unique constraint "%s" is violated.', '{self.name}'
                         USING ERRCODE = '23505', CONSTRAINT = '{self.name}';
                 END IF;
-            END IF;
+            {null_close}
             {cond_close}
             RETURN NEW;
         """)
@@ -145,22 +154,18 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         table = qn(model._meta.db_table)  # noqa: SLF001
         pk_col = qn(model._meta.pk.column)  # noqa: SLF001
 
-        null_checks = " OR ".join(f"NEW.{col} IS NULL" for col in columns)
-        where_parts = [f"{col} = NEW.{col}" for col in columns]
-        where_clause = " AND ".join(where_parts)
-
-        if len(columns) == 1:
-            lock_expr = f"hashtext(NEW.{columns[0]}::text)"
-        else:
-            concat_parts = " || ',' || ".join(f"COALESCE(NEW.{col}::text, '')" for col in columns)
-            lock_expr = f"hashtext({concat_parts})"
+        where_clause = self._where_clause(columns, columns)
+        lock_expr = self._lock_expr(columns)
+        null_guard = self._null_guard(columns)
 
         cond_open = f"IF {condition_sql} THEN " if condition_sql else ""
         cond_close = "END IF; " if condition_sql else ""
+        null_open = f"{null_guard} " if null_guard else ""
+        null_close = "END IF; " if null_guard else ""
 
         return self.format_sql(f"""
             {cond_open}
-            IF NOT ({null_checks}) THEN
+            {null_open}
                 PERFORM pg_advisory_xact_lock({lock_expr});
                 IF EXISTS (
                     SELECT 1 FROM {table}
@@ -172,7 +177,7 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
                         'Unique constraint "%s" is violated.', '{self.name}'
                         USING ERRCODE = '23505', CONSTRAINT = '{self.name}';
                 END IF;
-            END IF;
+            {null_close}
             {cond_close}
             RETURN NEW;
         """)
@@ -189,7 +194,9 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
             return
 
         values = {f: getattr(instance, f) for f in self.fields}
-        if any(v is None for v in values.values()):
+
+        # Default (nulls_distinct is not False): NULLs never violate uniqueness.
+        if self.nulls_distinct is not False and any(v is None for v in values.values()):
             return
 
         if self.across:

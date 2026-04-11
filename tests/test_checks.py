@@ -16,7 +16,7 @@ class TestTriggersNotInConstraints:
 
     def test_error_when_trigger_in_constraints(self):
         fake = UniqueConstraintTrigger(
-            field="slug",
+            fields=["slug"],
             across="testapp.Post",
             name="misplaced_trigger",
         )
