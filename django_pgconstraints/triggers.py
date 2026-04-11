@@ -501,6 +501,111 @@ class Immutable(pgtrigger.Trigger):
 # ======================================================================
 
 
+def _find_fk_refs(expr: BaseExpression) -> list[str]:
+    """Find all FK-traversal F() references in an expression tree.
+
+    Returns a list of ``__``-separated field chains (e.g. ``["part__base_price"]``).
+    """
+    from django.db.models import F as DjangoF  # noqa: PLC0415
+
+    refs: list[str] = []
+    if isinstance(expr, DjangoF):
+        name: str = expr.name
+        if "__" in name:
+            refs.append(name)
+    else:
+        for child in expr.get_source_expressions():
+            if child is not None:
+                refs.extend(_find_fk_refs(child))
+    return refs
+
+
+def _parse_fk_chain(
+    chain: str,
+    model: type[Model],
+) -> tuple[type[Model], str, str]:
+    """Parse an FK chain and return (related_model, fk_field_on_child, target_field).
+
+    For ``"part__base_price"`` on PurchaseItem:
+    - related_model = Part
+    - fk_field_on_child = "part" (the FK field name on PurchaseItem)
+    - target_field = "base_price" (the field on Part)
+
+    Only supports single-hop FK chains for now.
+    """
+    parts = chain.split("__")
+    if len(parts) != 2:  # noqa: PLR2004
+        msg = f"Reverse triggers only support single-hop FK chains, got '{chain}'"
+        raise ValueError(msg)
+
+    fk_field_name, target_field_name = parts
+    fk_field = model._meta.get_field(fk_field_name)  # noqa: SLF001
+    related_model = fk_field.related_model
+
+    return related_model, fk_field_name, target_field_name  # type: ignore[return-value]
+
+
+class _GeneratedFieldReverse(pgtrigger.Trigger):
+    """AFTER UPDATE trigger on a related model that recomputes the child's generated field."""
+
+    when = pgtrigger.After
+
+    def __init__(
+        self,
+        *,
+        child_model_label: str,
+        child_field: str,
+        child_fk_column: str,
+        expression: BaseExpression,
+        target_field: str,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> None:
+        self.child_model_label = child_model_label
+        self.child_field = child_field
+        self.child_fk_column = child_fk_column
+        self.expression = expression
+        self.target_field = target_field
+        # Only fire when the referenced field changes.
+        kwargs.setdefault("operation", pgtrigger.UpdateOf(target_field))
+        super().__init__(**kwargs)
+
+    def get_func(self, model: Model) -> str:
+        from django.apps import apps  # noqa: PLC0415
+
+        qn = pgtrigger.utils.quote
+
+        child_model = apps.get_model(self.child_model_label)
+        child_table = qn(child_model._meta.db_table)  # noqa: SLF001
+        child_target_col = qn(child_model._meta.get_field(self.child_field).column)  # noqa: SLF001
+        child_fk_col = qn(self.child_fk_column)
+        related_pk_col = qn(model._meta.pk.column)  # noqa: SLF001
+
+        # Compile expression for the UPDATE context:
+        # - Local child fields → child_table."column"
+        # - FK-traversed fields (the related model) → NEW."column"
+        expr_sql = _compile_expression(self.expression, child_model, row_ref=child_table)
+
+        # In the compiled SQL, the FK-resolved subquery will look like:
+        #   (SELECT "base_price" FROM testapp_part WHERE "id" = child_table."part_id")
+        # But we're ON the Part table, so we can use NEW directly.
+        # Replace the subquery with NEW."target_field_column".
+        target_col = qn(model._meta.get_field(self.target_field).column)  # type: ignore[union-attr]  # noqa: SLF001
+        # The subquery pattern from _resolve_field_ref for single-hop:
+        #   (SELECT "target_col" FROM "related_table" WHERE "pk" = child_table."fk_col")
+        related_table = qn(model._meta.db_table)  # noqa: SLF001
+        subquery_pattern = (
+            f"(SELECT {target_col} FROM {related_table} WHERE {related_pk_col} = {child_table}.{child_fk_col})"
+        )
+        expr_sql = expr_sql.replace(subquery_pattern, f"NEW.{target_col}")
+
+        return self.format_sql(f"""
+            UPDATE {child_table}
+            SET {child_target_col} = {expr_sql}
+            WHERE {child_fk_col} = NEW.{related_pk_col};
+            RETURN NEW;
+        """)
+
+
 class GeneratedFieldTrigger(pgtrigger.Trigger):
     """Automatically compute and set a field value from an expression.
 
@@ -508,8 +613,11 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
     ``BEFORE INSERT OR UPDATE`` and sets ``NEW.<field>`` to the resolved
     expression value.
 
-    For same-row expressions, this behaves identically to
-    ``GeneratedField(expression=..., db_persist=True)``.
+    For FK-traversal expressions, automatically creates reverse triggers
+    on related models to recompute the field when the referenced data changes.
+
+    Use ``GeneratedFieldTrigger.triggers()`` to get all triggers (forward +
+    reverse) for use in ``Meta.triggers``.
     """
 
     when = pgtrigger.Before
@@ -524,6 +632,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
     ) -> None:
         self.field = field
         self.expression = expression
+        self._kwargs = kwargs  # stash for triggers() classmethod
         super().__init__(**kwargs)
 
     def get_func(self, model: Model) -> str:
@@ -535,6 +644,50 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
             NEW.{target_col} := {expr_sql};
             RETURN NEW;
         """)
+
+    def get_reverse_triggers(self, model: type[Model]) -> list[tuple[type[Model], pgtrigger.Trigger]]:
+        """Return (related_model, trigger) pairs for reverse triggers."""
+        fk_refs = _find_fk_refs(self.expression)
+        if not fk_refs:
+            return []
+
+        result: list[tuple[type[Model], pgtrigger.Trigger]] = []
+        seen: set[str] = set()
+
+        for chain in fk_refs:
+            related_model, fk_field_name, target_field = _parse_fk_chain(chain, model)
+            # Deduplicate: one reverse trigger per (related_model, target_field).
+            key = f"{related_model._meta.label}.{target_field}"  # noqa: SLF001
+            if key in seen:
+                continue
+            seen.add(key)
+
+            fk_field = model._meta.get_field(fk_field_name)  # noqa: SLF001
+            child_label = model._meta.label  # noqa: SLF001
+
+            trigger = _GeneratedFieldReverse(
+                child_model_label=child_label,
+                child_field=self.field,
+                child_fk_column=fk_field.column,  # type: ignore[union-attr]
+                expression=self.expression,
+                target_field=target_field,
+                name=f"{self.name}_rev_{fk_field_name}",
+            )
+            result.append((related_model, trigger))
+
+        return result
+
+    def install(self, model: Model, database: str | None = None) -> None:
+        """Install forward trigger + any reverse triggers on related models."""
+        super().install(model, database=database)
+        for related_model, trigger in self.get_reverse_triggers(model):  # type: ignore[arg-type]
+            trigger.install(related_model, database=database)  # type: ignore[arg-type]
+
+    def uninstall(self, model: Model, database: str | None = None) -> None:
+        """Uninstall forward trigger + any reverse triggers."""
+        super().uninstall(model, database=database)
+        for related_model, trigger in self.get_reverse_triggers(model):  # type: ignore[arg-type]
+            trigger.uninstall(related_model, database=database)  # type: ignore[arg-type]
 
 
 # ======================================================================

@@ -127,25 +127,36 @@ class TestFKTraversalExpression:
         item.refresh_from_db()
         assert item.line_total == Decimal("150.00")
 
-    def test_related_price_change_does_not_auto_update(self):
-        """Changing part.base_price does NOT update existing PurchaseItems.
-
-        This is the same-row trigger only — reverse triggers will be added later.
-        This test documents the current limitation.
-        """
+    def test_related_field_change_auto_updates(self):
+        """Changing part.base_price auto-updates all referencing PurchaseItems."""
         supplier = Supplier.objects.create(name="Acme")
         part = Part.objects.create(name="Bolt", supplier=supplier, base_price=Decimal("2.50"))
-        item = PurchaseItem.objects.create(part=part, quantity=10)
-        item.refresh_from_db()
-        assert item.line_total == Decimal("25.00")
+        item1 = PurchaseItem.objects.create(part=part, quantity=10)
+        item2 = PurchaseItem.objects.create(part=part, quantity=4)
 
-        # Change the price on the related model.
         part.base_price = Decimal("5.00")
         part.save()
 
-        # The PurchaseItem is NOT updated — only fires on PurchaseItem INSERT/UPDATE.
-        item.refresh_from_db()
-        assert item.line_total == Decimal("25.00")  # stale, but expected for now
+        item1.refresh_from_db()
+        item2.refresh_from_db()
+        assert item1.line_total == Decimal("50.00")
+        assert item2.line_total == Decimal("20.00")
+
+    def test_related_field_change_only_affects_referencing_rows(self):
+        """Changing one part's price doesn't affect items linked to other parts."""
+        supplier = Supplier.objects.create(name="Acme")
+        bolt = Part.objects.create(name="Bolt", supplier=supplier, base_price=Decimal("2.50"))
+        nut = Part.objects.create(name="Nut", supplier=supplier, base_price=Decimal("0.50"))
+        bolt_item = PurchaseItem.objects.create(part=bolt, quantity=10)
+        nut_item = PurchaseItem.objects.create(part=nut, quantity=100)
+
+        bolt.base_price = Decimal("10.00")
+        bolt.save()
+
+        bolt_item.refresh_from_db()
+        nut_item.refresh_from_db()
+        assert bolt_item.line_total == Decimal("100.00")
+        assert nut_item.line_total == Decimal("50.00")  # unchanged
 
     def test_bulk_create(self):
         supplier = Supplier.objects.create(name="Acme")

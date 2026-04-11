@@ -15,6 +15,22 @@ class PgConstraintsConfig(AppConfig):
     name = "django_pgconstraints"
     default_auto_field = "django.db.models.BigAutoField"
 
+    def ready(self) -> None:
+        _register_reverse_triggers()
+
+
+def _register_reverse_triggers() -> None:
+    """Scan all models for GeneratedFieldTrigger and register reverse triggers."""
+    from django.apps import apps  # noqa: PLC0415
+
+    from django_pgconstraints.triggers import GeneratedFieldTrigger  # noqa: PLC0415
+
+    for model in apps.get_models():
+        for trigger in getattr(model._meta, "triggers", []):  # noqa: SLF001
+            if isinstance(trigger, GeneratedFieldTrigger):
+                for related_model, reverse_trigger in trigger.get_reverse_triggers(model):
+                    reverse_trigger.register(related_model)  # type: ignore[arg-type]
+
 
 @register(Tags.models)
 def check_triggers_not_in_constraints(**kwargs: Any) -> list[CheckMessage]:  # noqa: ANN401, ARG001
