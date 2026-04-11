@@ -456,21 +456,20 @@ class _GeneratedFieldReverse(pgtrigger.Trigger):
         child_table = qn(child_model._meta.db_table)  # noqa: SLF001
         child_target_col = qn(child_model._meta.get_field(self.child_field).column)  # noqa: SLF001
         trigger_pk_col = qn(model._meta.pk.column)  # noqa: SLF001
+        watched_col = qn(self.trigger_field)
 
-        # Compile expression for the UPDATE context (local fields use table name as ref).
+        # Compile the expression for the UPDATE context (local fields use
+        # the table name as the row reference).
         expr_sql = _compile_expression(self.expression, child_model, row_ref=child_table)
 
-        # Build WHERE clause: trace FK chain back from child to trigger model.
-        # For single-hop (chain_back=[{fk_col, related_table, related_pk}]):
-        #   WHERE "part_id" = NEW."id"
-        # For 2-hop (chain_back=[{...child→Part}, {...Part→Supplier}]):
-        #   WHERE "part_id" IN (SELECT "id" FROM "testapp_part" WHERE "supplier_id" = NEW."id")
         where = self._build_where_back(qn, trigger_pk_col)
 
         return self.format_sql(f"""
-            UPDATE {child_table}
-            SET {child_target_col} = {expr_sql}
-            WHERE {where};
+            IF NEW.{watched_col} IS DISTINCT FROM OLD.{watched_col} THEN
+                UPDATE {child_table}
+                SET {child_target_col} = {expr_sql}
+                WHERE {where};
+            END IF;
             RETURN NEW;
         """)
 
@@ -591,6 +590,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
             if leaf_key not in seen:
                 seen.add(leaf_key)
                 name_suffix = "__".join(h.fk_field_name for h in hops)
+                leaf_col = leaf_model._meta.get_field(leaf_field).column  # type: ignore[union-attr]  # noqa: SLF001
                 result.append(
                     (
                         leaf_model,
@@ -598,7 +598,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
                             child_model_label=child_label,
                             child_field=self.field,
                             expression=self.expression,
-                            trigger_field=leaf_field,
+                            trigger_field=leaf_col,
                             chain_back=chain_back_all,
                             name=f"{self.name}_rev_{name_suffix}",
                         ),

@@ -333,3 +333,74 @@ def test_construction_field_required():
 def test_construction_expression_required():
     with pytest.raises(TypeError):
         GeneratedFieldTrigger(field="total", name="c")  # type: ignore[call-arg]
+
+
+# ---------------------------------------------------------------------------
+# IS DISTINCT FROM gating — no-op updates don't cascade
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_gate_noop_save_does_not_recompute_dependents():
+    """Saving a Part without actually changing supplier_id must not trigger
+    any UPDATE on PurchaseItem rows."""
+    s = SupplierFactory.create(markup_pct=10)
+    part = PartFactory.create(supplier=s, base_price=D("10.00"))
+    item = PurchaseItemFactory.create(part=part, quantity=1)
+    item.refresh_from_db()
+    assert item.supplier_markup == 10
+
+    # Snapshot the PurchaseItem update count from pg_stat_user_tables.
+    # A reverse-trigger cascade would show up as extra n_tup_upd rows.
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT n_tup_upd FROM pg_stat_user_tables WHERE relname = 'testapp_purchaseitem'",
+        )
+        row = cur.fetchone()
+        updates_before = row[0] if row else 0
+
+    # No-op save: writes every field but supplier_id is unchanged.
+    part.save()
+
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT n_tup_upd FROM pg_stat_user_tables WHERE relname = 'testapp_purchaseitem'",
+        )
+        row = cur.fetchone()
+        updates_after = row[0] if row else 0
+
+    assert updates_after == updates_before, (
+        f"Expected no PurchaseItem updates (supplier_id unchanged), "
+        f"but got {updates_after - updates_before} extra update(s). "
+        "The IS DISTINCT FROM guard is not preventing the cascade."
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_gate_actual_change_still_cascades():
+    """An actual supplier reassignment must still propagate."""
+    s1 = SupplierFactory.create(markup_pct=10)
+    s2 = SupplierFactory.create(markup_pct=55)
+    part = PartFactory.create(supplier=s1, base_price=D("10.00"))
+    item = PurchaseItemFactory.create(part=part, quantity=1)
+    item.refresh_from_db()
+    assert item.supplier_markup == 10
+
+    part.supplier = s2
+    part.save()
+
+    item.refresh_from_db()
+    assert item.supplier_markup == 55
+
+
+@pytest.mark.django_db(transaction=True)
+def test_gate_generated_sql_contains_is_distinct_from():
+    """Unit-level check: the emitted trigger function contains the guard."""
+    forward = PurchaseItem._meta.triggers[1]  # supplier_markup trigger
+    reverse_pairs = forward.get_reverse_triggers(PurchaseItem)
+    assert reverse_pairs, "expected at least one reverse trigger"
+    for related_model, trigger in reverse_pairs:
+        func_sql = trigger.get_func(related_model)
+        assert "IS DISTINCT FROM" in func_sql, (
+            f"reverse trigger on {related_model.__name__} missing IS DISTINCT FROM guard"
+        )
