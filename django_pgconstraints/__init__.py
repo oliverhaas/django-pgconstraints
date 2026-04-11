@@ -1,5 +1,6 @@
 """Declarative PostgreSQL constraint triggers for Django."""
 
+from django_pgconstraints.admin import ComputedFieldsReadOnlyAdminMixin
 from django_pgconstraints.cycles import CycleError
 from django_pgconstraints.refresh import refresh_dependent
 from django_pgconstraints.triggers import (
@@ -10,6 +11,7 @@ from django_pgconstraints.triggers import (
 
 __all__ = [
     "CheckConstraintTrigger",
+    "ComputedFieldsReadOnlyAdminMixin",
     "CycleError",
     "GeneratedFieldTrigger",
     "UniqueConstraintTrigger",
