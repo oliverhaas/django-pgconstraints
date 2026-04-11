@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.apps import AppConfig
 from django.core.checks import Error, Tags, register
+from django.db import router
 from django.db.models.signals import post_migrate
 
 if TYPE_CHECKING:
@@ -43,7 +44,15 @@ def _install_unique_indexes(
 
     if sender is None:
         return
+    # TODO(follow-up): drift detection. If the user changes the trigger's  # noqa: FIX002, TD003
+    # indexable configuration (fields, expression, condition), the existing
+    # index stays under the same name because CREATE INDEX IF NOT EXISTS is
+    # a no-op. A future pass should DROP + recreate when the computed index
+    # definition differs from the existing one, or hash the definition into
+    # the index name so a config change produces a new name.
     for model in sender.get_models():
+        if using is not None and not router.allow_migrate_model(using, model):
+            continue
         for trigger in getattr(model._meta, "triggers", []):  # noqa: SLF001
             if isinstance(trigger, UniqueConstraintTrigger) and trigger.index:
                 trigger._install_index(model, database=using)  # noqa: SLF001

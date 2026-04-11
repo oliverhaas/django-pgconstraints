@@ -98,4 +98,43 @@ def test_plain_index_rejects_duplicate_insert():
     # index-level rejections use this code, so we can't distinguish on
     # the code alone — but index-level rejections name the index in the
     # error detail, while trigger-level ones name the trigger.
-    assert "pgconstraints_idx_" in str(exc_info.value) or "unique" in str(exc_info.value).lower()
+    assert "pgconstraints_idx_" in str(exc_info.value), (
+        f"Expected index-level rejection (message mentioning the index name), "
+        f"got: {exc_info.value}. If this message mentions the trigger name, "
+        f"the index isn't being installed, or the trigger is rejecting first."
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_explicit_install_uninstall_roundtrip():
+    """The `install()` / `uninstall()` methods (invoked by `manage.py
+    pgtrigger install`) must also create/drop the backing index, not just
+    the post_migrate path."""
+    from testapp.models import IndexedSlugPage  # noqa: PLC0415
+
+    trigger = IndexedSlugPage._meta.triggers[0]
+    assert isinstance(trigger, UniqueConstraintTrigger)
+    assert trigger.index is True
+
+    # Drop the existing index (installed by post_migrate at test setup).
+    trigger.uninstall(IndexedSlugPage)  # type: ignore[arg-type]
+
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT indexname FROM pg_indexes "
+            "WHERE tablename = 'testapp_indexedslugpage' "
+            "AND indexname LIKE 'pgconstraints_idx_%%'",
+        )
+        assert cur.fetchall() == [], "uninstall() did not drop the index"
+
+    # Explicit install() should reinstall it.
+    trigger.install(IndexedSlugPage)  # type: ignore[arg-type]
+
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT indexname FROM pg_indexes "
+            "WHERE tablename = 'testapp_indexedslugpage' "
+            "AND indexname LIKE 'pgconstraints_idx_%%'",
+        )
+        rows = cur.fetchall()
+    assert rows, "install() did not create the index"
