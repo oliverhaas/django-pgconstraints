@@ -1,86 +1,274 @@
-"""Tests for CheckConstraintTrigger."""
+"""Tests for CheckConstraintTrigger.
+
+Covers: local-only conditions, FK-traversal conditions, validate(),
+dynamic Q patterns (AND/OR/NOT/F-to-F), construction, and lifecycle.
+"""
+
+from decimal import Decimal
 
 import pytest
-from django.db import IntegrityError, connection
-from testapp.models import OrderLine, Product
+from _trigger_helpers import swap_trigger, trigger_exists
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
+from django.db.models import F, Q
+from testapp.factories import OrderLineFactory, ProductFactory
+from testapp.models import OrderLine
+
+from django_pgconstraints import CheckConstraintTrigger
+
+D = Decimal
+
 
 # ---------------------------------------------------------------------------
-# DB-level enforcement
+# Local-only condition (same semantics as Django's CheckConstraint)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db(transaction=True)
-class TestCheckConstraintTriggerEnforcement:
-    def test_insert_within_stock(self):
-        product = Product.objects.create(name="Widget", stock=10)
-        OrderLine.objects.create(product=product, quantity=5)
+def test_local_positive_quantity_passes():
+    product = ProductFactory.create(stock=10)
+    OrderLineFactory.create(product=product, quantity=1)
 
-    def test_insert_at_stock_limit(self):
-        product = Product.objects.create(name="Widget", stock=10)
-        OrderLine.objects.create(product=product, quantity=10)
 
-    def test_insert_exceeding_stock(self):
-        product = Product.objects.create(name="Widget", stock=5)
-        with pytest.raises(IntegrityError):
-            OrderLine.objects.create(product=product, quantity=6)
+@pytest.mark.django_db(transaction=True)
+def test_local_zero_quantity_blocked():
+    product = ProductFactory.create(stock=10)
+    with pytest.raises(IntegrityError):
+        OrderLineFactory.create(product=product, quantity=0)
 
-    def test_update_to_exceed_stock(self):
-        product = Product.objects.create(name="Widget", stock=10)
-        line = OrderLine.objects.create(product=product, quantity=5)
-        line.quantity = 11
-        with pytest.raises(IntegrityError):
-            line.save()
 
-    def test_update_within_stock(self):
-        product = Product.objects.create(name="Widget", stock=10)
-        line = OrderLine.objects.create(product=product, quantity=5)
-        line.quantity = 8
+@pytest.mark.django_db(transaction=True)
+def test_local_negative_quantity_blocked():
+    product = ProductFactory.create(stock=10)
+    with pytest.raises(IntegrityError):
+        OrderLineFactory.create(product=product, quantity=-5)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_local_update_to_invalid_blocked():
+    product = ProductFactory.create(stock=10)
+    line = OrderLineFactory.create(product=product, quantity=5)
+    line.quantity = 0
+    with pytest.raises(IntegrityError):
         line.save()
 
-    def test_local_only_check(self):
-        """The quantity > 0 constraint is a simple local check."""
-        product = Product.objects.create(name="Widget", stock=10)
-        with pytest.raises(IntegrityError):
-            OrderLine.objects.create(product=product, quantity=0)
-
-    def test_local_check_passes(self):
-        product = Product.objects.create(name="Widget", stock=10)
-        OrderLine.objects.create(product=product, quantity=1)
-
-    def test_reassign_product(self):
-        """Changing the FK should re-check against the new product's stock."""
-        big = Product.objects.create(name="Big", stock=100)
-        small = Product.objects.create(name="Small", stock=2)
-        line = OrderLine.objects.create(product=big, quantity=50)
-        line.product = small
-        with pytest.raises(IntegrityError):
-            line.save()
-
 
 # ---------------------------------------------------------------------------
-# Trigger lifecycle
+# FK-traversal condition (quantity <= product__stock)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db(transaction=True)
-class TestCheckConstraintTriggerLifecycle:
-    def _trigger_exists(self, name_fragment, table):
-        with connection.cursor() as cur:
-            cur.execute(
-                "SELECT 1 FROM pg_trigger t "
-                "JOIN pg_class c ON t.tgrelid = c.oid "
-                "WHERE t.tgname LIKE %s AND c.relname = %s",
-                [f"%{name_fragment}%", table],
-            )
-            return cur.fetchone() is not None
+def test_fk_within_stock_passes():
+    product = ProductFactory.create(stock=10)
+    OrderLineFactory.create(product=product, quantity=5)
 
-    def test_triggers_created(self):
-        assert self._trigger_exists("orderline_qty_lte_stock", "testapp_orderline")
 
-    def test_remove_and_recreate(self):
-        trigger = OrderLine._meta.triggers[0]
-        trigger.uninstall(OrderLine)
-        assert not self._trigger_exists("orderline_qty_lte_stock", "testapp_orderline")
+@pytest.mark.django_db(transaction=True)
+def test_fk_at_stock_limit_passes():
+    product = ProductFactory.create(stock=10)
+    OrderLineFactory.create(product=product, quantity=10)
 
-        trigger.install(OrderLine)
-        assert self._trigger_exists("orderline_qty_lte_stock", "testapp_orderline")
+
+@pytest.mark.django_db(transaction=True)
+def test_fk_exceeding_stock_blocked():
+    product = ProductFactory.create(stock=5)
+    with pytest.raises(IntegrityError):
+        OrderLineFactory.create(product=product, quantity=6)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_fk_update_to_exceed_stock_blocked():
+    product = ProductFactory.create(stock=10)
+    line = OrderLineFactory.create(product=product, quantity=5)
+    line.quantity = 11
+    with pytest.raises(IntegrityError):
+        line.save()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_fk_reassign_product_rechecks():
+    big = ProductFactory.create(stock=100)
+    small = ProductFactory.create(stock=2)
+    line = OrderLineFactory.create(product=big, quantity=50)
+    line.product = small
+    with pytest.raises(IntegrityError):
+        line.save()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_fk_multiple_products_independent():
+    big = ProductFactory.create(stock=100)
+    small = ProductFactory.create(stock=5)
+    OrderLineFactory.create(product=big, quantity=50)
+    OrderLineFactory.create(product=small, quantity=5)
+    with pytest.raises(IntegrityError):
+        OrderLineFactory.create(product=small, quantity=6)
+
+
+# ---------------------------------------------------------------------------
+# validate() — Python-level validation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_validate_local_condition_raises():
+    """Local-only condition (quantity > 0) is checked in Python."""
+    product = ProductFactory.create(stock=10)
+    line = OrderLine(product=product, quantity=0)
+    trigger = OrderLine._meta.triggers[1]  # qty_positive
+    with pytest.raises(ValidationError):
+        trigger.validate(OrderLine, line)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_validate_local_condition_passes():
+    product = ProductFactory.create(stock=10)
+    line = OrderLine(product=product, quantity=5)
+    trigger = OrderLine._meta.triggers[1]
+    trigger.validate(OrderLine, line)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_validate_fk_condition_skipped():
+    """FK-traversal conditions are skipped in Python — trigger handles them."""
+    product = ProductFactory.create(stock=2)
+    line = OrderLine(product=product, quantity=100)
+    trigger = OrderLine._meta.triggers[0]  # qty_lte_stock
+    trigger.validate(OrderLine, line)
+
+
+# ---------------------------------------------------------------------------
+# Dynamic Q patterns (swap a custom trigger in and out)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dynamic_f_to_f_same_table():
+    """quantity <= product__max_order_quantity — both sides resolve via the same FK."""
+    trigger = CheckConstraintTrigger(
+        condition=Q(quantity__lte=F("product__max_order_quantity")),
+        name="orderline_qty_lte_max",
+    )
+    # Swap out the stock-bound trigger (index 0) so it doesn't also fire.
+    with swap_trigger(OrderLine, trigger, index=0):
+        product = ProductFactory.create(stock=1000, max_order_quantity=10)
+        OrderLineFactory.create(product=product, quantity=10)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=product, quantity=11)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dynamic_negated_condition():
+    trigger = CheckConstraintTrigger(
+        condition=~Q(quantity=0),
+        name="orderline_qty_not_zero",
+    )
+    with swap_trigger(OrderLine, trigger, index=1):  # swap qty_positive
+        product = ProductFactory.create(stock=10)
+        OrderLineFactory.create(product=product, quantity=1)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=product, quantity=0)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dynamic_or_condition():
+    trigger = CheckConstraintTrigger(
+        condition=Q(quantity=1) | Q(quantity=5),
+        name="orderline_qty_1_or_5",
+    )
+    with swap_trigger(OrderLine, trigger, index=1):
+        product = ProductFactory.create(stock=10)
+        OrderLineFactory.create(product=product, quantity=1)
+        OrderLineFactory.create(product=product, quantity=5)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=product, quantity=3)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dynamic_and_condition():
+    trigger = CheckConstraintTrigger(
+        condition=Q(quantity__gt=0) & Q(quantity__lte=100),
+        name="orderline_qty_range",
+    )
+    with swap_trigger(OrderLine, trigger, index=1):
+        product = ProductFactory.create(stock=1000)
+        OrderLineFactory.create(product=product, quantity=1)
+        OrderLineFactory.create(product=product, quantity=100)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=product, quantity=0)
+        with pytest.raises(IntegrityError):
+            OrderLineFactory.create(product=product, quantity=101)
+
+
+# ---------------------------------------------------------------------------
+# Construction (pure Python, no DB)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_construction_condition_stored():
+    q = Q(quantity__gt=0)
+    t = CheckConstraintTrigger(condition=q, name="c")
+    assert t.check_condition is q
+
+
+@pytest.mark.unit
+def test_construction_non_q_raises():
+    with pytest.raises(TypeError, match="must be a Q instance"):
+        CheckConstraintTrigger(condition="not a Q", name="c")  # type: ignore[arg-type]
+
+
+@pytest.mark.unit
+def test_construction_custom_error_code():
+    t = CheckConstraintTrigger(
+        condition=Q(quantity__gt=0),
+        violation_error_code="custom",
+        name="c",
+    )
+    assert t.violation_error_code == "custom"
+
+
+@pytest.mark.unit
+def test_construction_custom_error_message():
+    t = CheckConstraintTrigger(
+        condition=Q(quantity__gt=0),
+        violation_error_message="Bad value",
+        name="c",
+    )
+    assert t.violation_error_message == "Bad value"
+
+
+@pytest.mark.unit
+def test_construction_default_error_message_includes_name():
+    t = CheckConstraintTrigger(condition=Q(x__gt=0), name="my_check")
+    assert "my_check" in t.get_violation_error_message()
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lifecycle_both_triggers_created():
+    assert trigger_exists("orderline_qty_lte_stock", "testapp_orderline")
+    assert trigger_exists("orderline_qty_positive", "testapp_orderline")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lifecycle_remove_and_recreate():
+    trigger = OrderLine._meta.triggers[0]
+    trigger.uninstall(OrderLine)
+    assert not trigger_exists("orderline_qty_lte_stock", "testapp_orderline")
+    trigger.install(OrderLine)
+    assert trigger_exists("orderline_qty_lte_stock", "testapp_orderline")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_lifecycle_install_is_idempotent():
+    trigger = OrderLine._meta.triggers[0]
+    trigger.uninstall(OrderLine)
+    trigger.install(OrderLine)
+    trigger.install(OrderLine)
+    assert trigger_exists("orderline_qty_lte_stock", "testapp_orderline")
