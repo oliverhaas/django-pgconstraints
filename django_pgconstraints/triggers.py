@@ -421,11 +421,17 @@ def _parse_fk_chain(chain: str, model: type[Model]) -> tuple[list[_FKHop], str]:
 class _GeneratedFieldReverse(pgtrigger.Trigger):
     """AFTER UPDATE trigger on a related model that recomputes the child's generated field.
 
-    Handles arbitrary-depth FK chains by building nested subqueries
-    to find affected child rows.
+    Statement-level: fires once per UPDATE statement on the related model,
+    uses REFERENCING transition tables to coalesce bulk cascades into a
+    single set-based UPDATE. The IS DISTINCT FROM gate moves from a
+    per-row IF guard to a join between new_rows and old_rows in the WHERE
+    clause, so bulk updates that don't actually change the watched column
+    incur zero child-row touches.
     """
 
     when = pgtrigger.After
+    level = pgtrigger.Statement
+    referencing = pgtrigger.Referencing(old="old_rows", new="new_rows")
 
     def __init__(
         self,
@@ -444,7 +450,14 @@ class _GeneratedFieldReverse(pgtrigger.Trigger):
         self.expression = expression
         self.trigger_field = trigger_field
         self.chain_back = chain_back
-        kwargs.setdefault("operation", pgtrigger.UpdateOf(trigger_field))
+        # Statement-level triggers with REFERENCING transition tables cannot
+        # use UPDATE OF <column> in PostgreSQL ("transition tables cannot be
+        # specified for triggers with column lists"), so we listen to all
+        # UPDATEs on the related model. The IS DISTINCT FROM join between
+        # new_rows and old_rows in the WHERE clause filters out statements
+        # that don't actually change the watched column, preserving the
+        # no-op gate semantics from the row-level implementation.
+        kwargs.setdefault("operation", pgtrigger.Update)
         super().__init__(**kwargs)
 
     def get_func(self, model: Model) -> str:
@@ -458,49 +471,63 @@ class _GeneratedFieldReverse(pgtrigger.Trigger):
         trigger_pk_col = qn(model._meta.pk.column)  # noqa: SLF001
         watched_col = qn(self.trigger_field)
 
-        # Compile the expression for the UPDATE context (local fields use
-        # the table name as the row reference).
+        # Compile the expression for the UPDATE context (child-row refs use
+        # the child table name as the row reference).
         expr_sql = _compile_expression(self.expression, child_model, row_ref=child_table)
 
-        where = self._build_where_back(qn, trigger_pk_col)
+        where = self._build_where_back(qn, trigger_pk_col, watched_col)
 
         return self.format_sql(f"""
-            IF NEW.{watched_col} IS DISTINCT FROM OLD.{watched_col} THEN
-                UPDATE {child_table}
-                SET {child_target_col} = {expr_sql}
-                WHERE {where};
-            END IF;
-            RETURN NEW;
+            UPDATE {child_table}
+            SET {child_target_col} = {expr_sql}
+            WHERE {where};
+            RETURN NULL;
         """)
 
-    def _build_where_back(self, qn: Any, trigger_pk_col: str) -> str:  # noqa: ANN401
+    def _build_where_back(self, qn: Any, trigger_pk_col: str, watched_col: str) -> str:  # noqa: ANN401
         """Build WHERE clause tracing from child table back to trigger model.
 
         chain_back is ordered from child→...→trigger_model.
         Each entry: {fk_col (on this table), table (this model's table), pk (this model's PK)}.
 
-        For single-hop [{fk_col=part_id, table=purchaseitem, pk=id}]:
-          → "part_id" = NEW."id"
+        The innermost leaf — previously `= NEW."id"` at row-level — is now a
+        subquery joining the transition tables on the trigger-model PK, filtered
+        by the IS DISTINCT FROM gate on the watched column. This restricts the
+        cascade to only those parent rows whose watched column actually changed,
+        not just the superset of rows that appeared in the UPDATE statement.
 
-        For 2-hop [{fk_col=part_id, table=purchaseitem, pk=id},
-                   {fk_col=supplier_id, table=part, pk=id}]:
-          → "part_id" IN (SELECT "id" FROM "testapp_part" WHERE "supplier_id" = NEW."id")
+        Single-hop example (Supplier.markup_pct → Part):
+          "supplier_id" IN (
+              SELECT n."id" FROM new_rows n JOIN old_rows o ON n."id" = o."id"
+              WHERE n."markup_pct" IS DISTINCT FROM o."markup_pct"
+          )
+
+        Two-hop example (Supplier.markup_pct → PurchaseItem via Part):
+          "part_id" IN (
+              SELECT "id" FROM "testapp_part" WHERE "supplier_id" IN (
+                  SELECT n."id" FROM new_rows n JOIN old_rows o ON n."id" = o."id"
+                  WHERE n."markup_pct" IS DISTINCT FROM o."markup_pct"
+              )
+          )
         """
+        changed_pks = (
+            f"SELECT n.{trigger_pk_col} FROM new_rows n "
+            f"JOIN old_rows o ON n.{trigger_pk_col} = o.{trigger_pk_col} "
+            f"WHERE n.{watched_col} IS DISTINCT FROM o.{watched_col}"
+        )
+
         if len(self.chain_back) == 1:
             hop = self.chain_back[0]
-            return f"{qn(hop['fk_col'])} = NEW.{trigger_pk_col}"
+            return f"{qn(hop['fk_col'])} IN ({changed_pks})"
 
-        # Multi-hop: build nested IN subqueries.
-        # Start from the innermost (closest to trigger model) and work outward.
-        # The innermost query: SELECT pk FROM table WHERE fk_col = NEW.pk
+        # Multi-hop: build nested IN subqueries, innermost first.
         last = self.chain_back[-1]
-        inner = f"SELECT {qn(last['pk'])} FROM {qn(last['table'])} WHERE {qn(last['fk_col'])} = NEW.{trigger_pk_col}"
+        inner = f"SELECT {qn(last['pk'])} FROM {qn(last['table'])} WHERE {qn(last['fk_col'])} IN ({changed_pks})"
 
-        # Intermediate hops (walking outward toward child).
+        # Intermediate hops, walking outward toward the child table.
         for hop in reversed(self.chain_back[1:-1]):
             inner = f"SELECT {qn(hop['pk'])} FROM {qn(hop['table'])} WHERE {qn(hop['fk_col'])} IN ({inner})"
 
-        # Outermost: the child table's FK column.
         first = self.chain_back[0]
         return f"{qn(first['fk_col'])} IN ({inner})"
 

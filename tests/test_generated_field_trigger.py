@@ -7,6 +7,7 @@ construction.
 
 from decimal import Decimal
 
+import pgtrigger
 import pytest
 from django.db import connection
 from django.db.models import F
@@ -435,13 +436,24 @@ def test_gate_actual_change_still_cascades():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_gate_generated_sql_contains_is_distinct_from():
-    """Unit-level check: the emitted trigger function contains the guard."""
+def test_gate_generated_sql_is_statement_level_with_transition_tables():
+    """The emitted reverse trigger function must be statement-level and join
+    new_rows/old_rows for the IS DISTINCT FROM gate, not row-level IF/END IF."""
     forward = PurchaseItem._meta.triggers[1]  # supplier_markup trigger
     reverse_pairs = forward.get_reverse_triggers(PurchaseItem)
     assert reverse_pairs, "expected at least one reverse trigger"
     for related_model, trigger in reverse_pairs:
-        func_sql = trigger.get_func(related_model)
-        assert "IS DISTINCT FROM" in func_sql, (
-            f"reverse trigger on {related_model.__name__} missing IS DISTINCT FROM guard"
+        # Statement-level class attributes
+        assert trigger.level is pgtrigger.Statement, (
+            f"reverse trigger on {related_model.__name__} must be statement-level"
         )
+        assert trigger.referencing is not None, f"reverse trigger on {related_model.__name__} must declare REFERENCING"
+        assert trigger.referencing.new == "new_rows"
+        assert trigger.referencing.old == "old_rows"
+
+        func_sql = trigger.get_func(related_model)
+        # The per-row IF guard is gone; gating is in the WHERE clause.
+        assert "IS DISTINCT FROM" in func_sql, f"reverse trigger on {related_model.__name__} lost IS DISTINCT FROM gate"
+        assert "new_rows" in func_sql, f"reverse trigger on {related_model.__name__} must reference new_rows"
+        assert "old_rows" in func_sql, f"reverse trigger on {related_model.__name__} must reference old_rows"
+        assert "RETURN NULL" in func_sql, f"statement-level trigger on {related_model.__name__} must RETURN NULL"
