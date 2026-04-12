@@ -2,7 +2,7 @@
 name = "full-example"
 version = "0.0.0"
 requires-python = ">=3.14"
-dependencies = ["django>=5.2", "django-pgconstraints", "psycopg[c]"]
+dependencies = ["django>=6.0", "django-pgconstraints", "psycopg[c]"]
 
 [tool.django]
 settings = "config.settings"

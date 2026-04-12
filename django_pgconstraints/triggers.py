@@ -167,7 +167,7 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
         if fields and expressions:
             msg = "UniqueConstraintTrigger.fields and expressions are mutually exclusive."
             raise ValueError(msg)
-        if expressions and deferrable:
+        if expressions and deferrable == Deferrable.DEFERRED:
             msg = "UniqueConstraintTrigger with expressions cannot be deferred."
             raise ValueError(msg)
 
@@ -298,7 +298,7 @@ class UniqueConstraintTrigger(pgtrigger.Trigger):
                     FOR UPDATE
                 ) THEN
                     RAISE EXCEPTION
-                        'Unique constraint "%s" is violated.', '{self.name}'
+                        'Unique constraint "{self.name}" is violated.'
                         USING ERRCODE = '23505', CONSTRAINT = '{self.name}';
                 END IF;
             {null_close}
@@ -473,7 +473,7 @@ class CheckConstraintTrigger(pgtrigger.Trigger):
         return self.format_sql(f"""
             IF NOT ({check_sql}) THEN
                 RAISE EXCEPTION
-                    'Check constraint "%s" is violated.', '{self.name}'
+                    'Check constraint "{self.name}" is violated.'
                     USING ERRCODE = '23514', CONSTRAINT = '{self.name}';
             END IF;
             RETURN NEW;
@@ -760,7 +760,6 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
     ) -> None:
         self.field = field
         self.expression = expression
-        self._kwargs = kwargs  # stash for triggers() classmethod
         super().__init__(**kwargs)
 
     def get_func(self, model: Model) -> str:

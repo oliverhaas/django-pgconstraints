@@ -1,6 +1,6 @@
 [project]
 name = "django-pgconstraints"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "Declarative PostgreSQL constraint triggers for Django"
 readme = "README.md"
 license = { text = "MIT" }
@@ -8,7 +8,7 @@ requires-python = ">=3.14"
 keywords = ["django", "postgresql", "constraints", "triggers"]
 authors = [{ name = "Oliver Haas", email = "ohaas@e1plus.de" }]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 4 - Beta",
   "Framework :: Django",
   "Framework :: Django :: 6.0",
   "Intended Audience :: Developers",

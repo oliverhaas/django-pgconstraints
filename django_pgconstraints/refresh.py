@@ -43,24 +43,15 @@ def refresh_dependent(queryset: QuerySet) -> None:
     """
     root_model = queryset.model
     qn: Callable[[str], str] = pgtrigger.utils.quote
-    root_table = qn(root_model._meta.db_table)  # noqa: SLF001
-    root_pk = qn(root_model._meta.pk.column)  # noqa: SLF001
 
     # Compile the queryset's WHERE clause so we scope the reconciliation
-    # to only the rows the caller asked about. We render to SQL with
-    # inlined literals via .query.sql_with_params() + cursor.mogrify so
-    # the produced SELECT can sit inside another statement.
+    # to only the rows the caller asked about.
     qs_sql, qs_params = queryset.values("pk").query.sql_with_params()
 
     with connection.cursor() as cur:
-        # mogrify returns bytes; decode to str for string interpolation.
-        # We trust Django's parameterizer here because the values come
-        # from the caller's own queryset, not user-supplied SQL.
-        inlined = cur.mogrify(qs_sql, qs_params)
-        if isinstance(inlined, bytes):
-            inlined = inlined.decode()
-
-    leaf_sql = f"SELECT {root_pk} FROM {root_table} WHERE {root_pk} IN ({inlined})"
+        leaf_sql = cur.mogrify(qs_sql, qs_params)
+        if isinstance(leaf_sql, bytes):
+            leaf_sql = leaf_sql.decode()
 
     # Walk every GeneratedFieldTrigger in the app and find ones whose
     # reverse triggers would fire for `root_model`.

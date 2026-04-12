@@ -106,6 +106,82 @@ item.refresh_from_db()
 item.total  # Decimal('30.00')
 ```
 
+## Reconciling after a trigger bypass
+
+If triggers are bypassed (raw SQL, `ALTER TABLE ... DISABLE TRIGGER`,
+restoring a dump), computed values go stale. Two tools reconcile them:
+
+### `refresh_dependent(queryset)`
+
+Recomputes every `GeneratedFieldTrigger` target that depends on the
+queryset's model. Issues one `UPDATE ... SET col = col` per dependent
+field, scoped to child rows that point at the queryset:
+
+```python
+from django_pgconstraints import refresh_dependent
+
+# Only reconcile parts linked to these specific suppliers.
+refresh_dependent(Supplier.objects.filter(pk__in=changed_ids))
+```
+
+No-ops when the queryset matches zero rows or no dependent triggers
+exist. Safe to call inside a transaction.
+
+### `refresh_computed_field` management command
+
+Touches every row so the forward trigger recomputes the value:
+
+```bash
+# Refresh a specific field on a specific model.
+python manage.py refresh_computed_field testapp.Part.markup_amount
+
+# Refresh all GeneratedFieldTrigger fields on a model.
+python manage.py refresh_computed_field testapp.Part
+
+# Refresh every managed field in the project.
+python manage.py refresh_computed_field --all
+```
+
+Use this after adding a new trigger to an existing table, or after
+changing the expression of an existing trigger.
+
+## Cycle detection
+
+At startup, the package builds a dependency graph of all
+`GeneratedFieldTrigger` expressions and checks for cycles. If trigger A
+depends on a field that trigger B computes, and B depends on a field A
+computes, a `CycleError` is raised immediately:
+
+```
+django_pgconstraints.cycles.CycleError:
+    Computed field cycle detected: myapp.Model.a → myapp.Model.b → myapp.Model.a
+```
+
+`CycleError` is importable from the package root:
+
+```python
+from django_pgconstraints import CycleError
+```
+
+## Admin integration
+
+`ComputedFieldsReadOnlyAdminMixin` automatically marks every
+`GeneratedFieldTrigger` target field as read-only in the Django admin,
+preventing users from typing into a field that would be silently
+overwritten on save:
+
+```python
+from django.contrib import admin
+from django_pgconstraints import ComputedFieldsReadOnlyAdminMixin
+
+@admin.register(Part)
+class PartAdmin(ComputedFieldsReadOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ("name", "base_price", "markup_amount")
+```
+
+The mixin preserves any `readonly_fields` you declare manually and
+appends the computed fields on top.
+
 ## Validation
 
 `GeneratedFieldTrigger` does not participate in `full_clean()` — it is

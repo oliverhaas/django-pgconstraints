@@ -113,26 +113,32 @@ def _detect(
     edges: dict[_NodeKey, set[_NodeKey]],
     nodes: set[_NodeKey],
 ) -> None:
-    """Recursive DFS cycle check.  Raises :class:`CycleError` on first cycle."""
+    """Iterative DFS cycle check.  Raises :class:`CycleError` on first cycle."""
     visited: set[_NodeKey] = set()
-    stack: list[_NodeKey] = []
-    on_stack: set[_NodeKey] = set()
+    path: list[_NodeKey] = []
+    on_path: set[_NodeKey] = set()
 
-    def visit(node: _NodeKey) -> None:
-        if node in on_stack:
-            start = stack.index(node)
-            cycle = [*stack[start:], node]
-            raise CycleError([f"{m}.{f}" for m, f in cycle])
-        if node in visited:
-            return
-        stack.append(node)
-        on_stack.add(node)
-        for dep in edges.get(node, set()):
-            visit(dep)
-        stack.pop()
-        on_stack.remove(node)
-        visited.add(node)
+    for root in list(nodes):
+        if root in visited:
+            continue
+        # Each frame: (node, iterator over its successors)
+        call_stack: list[tuple[_NodeKey, Iterator[_NodeKey]]] = [(root, iter(edges.get(root, set())))]
+        path.append(root)
+        on_path.add(root)
 
-    for node in list(nodes):
-        if node not in visited:
-            visit(node)
+        while call_stack:
+            node, children = call_stack[-1]
+            child = next(children, None)
+            if child is None:
+                call_stack.pop()
+                path.pop()
+                on_path.discard(node)
+                visited.add(node)
+                continue
+            if child in on_path:
+                start = path.index(child)
+                raise CycleError([f"{m}.{f}" for m, f in [*path[start:], child]])
+            if child not in visited:
+                path.append(child)
+                on_path.add(child)
+                call_stack.append((child, iter(edges.get(child, set()))))

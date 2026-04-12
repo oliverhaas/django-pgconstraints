@@ -18,6 +18,7 @@ UniqueConstraintTrigger(
     condition: Q | None = None,
     deferrable: Deferrable | None = None,
     nulls_distinct: bool | None = None,
+    index: bool = False,
     violation_error_code: str | None = None,
     violation_error_message: str | None = None,
     name: str,
@@ -135,6 +136,44 @@ UniqueConstraintTrigger(
 
 The database-level error still comes back as `IntegrityError` with
 PostgreSQL error code `23505`.
+
+## Index backing
+
+By default, uniqueness is enforced solely by the trigger. Pass
+`index=True` to also create a matching `CREATE UNIQUE INDEX`:
+
+```python
+UniqueConstraintTrigger(
+    fields=["slug", "section"],
+    index=True,
+    name="page_unique_slug_per_section",
+)
+```
+
+The index makes uniqueness checks O(log n) per insert instead of the
+trigger's O(n) `EXISTS` scan, and lets the query planner use the column
+set for ordinary `SELECT` queries. The trigger stays installed as a
+second layer of defense and for `validate()` / `full_clean()` support.
+
+Supported with `index=True`:
+
+- Plain fields, composite fields
+- Expressions (`Lower("email")`)
+- Partial conditions (`condition=Q(published=True)`)
+- `nulls_distinct=False` (PostgreSQL 15+)
+
+Not supported with `index=True` (raises `ValueError`):
+
+- FK-traversal `__` in `fields` — unique indexes only cover same-table
+  columns
+- FK-traversal `F()` references in expressions
+- `deferrable=Deferrable.DEFERRED` — PostgreSQL unique indexes cannot be
+  deferred
+
+**Trade-off:** when `index=True` rejects a duplicate, the error comes
+from PostgreSQL's native index-level message, not the trigger's
+`violation_error_message`. If you need the custom error message, use
+`index=False` (the default) and rely on the trigger alone.
 
 ## Concurrency
 
