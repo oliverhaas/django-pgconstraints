@@ -608,6 +608,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#index-backing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Index backing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#concurrency" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -920,6 +931,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#index-backing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Index backing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#concurrency" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -964,10 +986,11 @@ overlap — but <code>fields=</code> additionally accepts foreign-key chains
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">condition</span><span class="p">:</span> <span class="n">Q</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">deferrable</span><span class="p">:</span> <span class="n">Deferrable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">nulls_distinct</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">violation_error_code</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">violation_error_message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">)</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">index</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">violation_error_code</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">violation_error_message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="p">)</span>
 </code></pre></div>
 <p>At least one of <code>fields</code> or <code>expressions</code> must be provided, and the two
 are mutually exclusive.</p>
@@ -1052,6 +1075,38 @@ through to Django's <code>ValidationError</code> when <code>validate()</code> ru
 </code></pre></div>
 <p>The database-level error still comes back as <code>IntegrityError</code> with
 PostgreSQL error code <code>23505</code>.</p>
+<h2 id="index-backing">Index backing<a class="headerlink" href="#index-backing" title="Permanent link">&para;</a></h2>
+<p>By default, uniqueness is enforced solely by the trigger. Pass
+<code>index=True</code> to also create a matching <code>CREATE UNIQUE INDEX</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">UniqueConstraintTrigger</span><span class="p">(</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    <span class="n">fields</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;slug&quot;</span><span class="p">,</span> <span class="s2">&quot;section&quot;</span><span class="p">],</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="n">index</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;page_unique_slug_per_section&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="p">)</span>
+</code></pre></div>
+<p>The index makes uniqueness checks O(log n) per insert instead of the
+trigger's O(n) <code>EXISTS</code> scan, and lets the query planner use the column
+set for ordinary <code>SELECT</code> queries. The trigger stays installed as a
+second layer of defense and for <code>validate()</code> / <code>full_clean()</code> support.</p>
+<p>Supported with <code>index=True</code>:</p>
+<ul>
+<li>Plain fields, composite fields</li>
+<li>Expressions (<code>Lower("email")</code>)</li>
+<li>Partial conditions (<code>condition=Q(published=True)</code>)</li>
+<li><code>nulls_distinct=False</code> (PostgreSQL 15+)</li>
+</ul>
+<p>Not supported with <code>index=True</code> (raises <code>ValueError</code>):</p>
+<ul>
+<li>FK-traversal <code>__</code> in <code>fields</code> — unique indexes only cover same-table
+  columns</li>
+<li>FK-traversal <code>F()</code> references in expressions</li>
+<li><code>deferrable=Deferrable.DEFERRED</code> — PostgreSQL unique indexes cannot be
+  deferred</li>
+</ul>
+<p><strong>Trade-off:</strong> when <code>index=True</code> rejects a duplicate, the error comes
+from PostgreSQL's native index-level message, not the trigger's
+<code>violation_error_message</code>. If you need the custom error message, use
+<code>index=False</code> (the default) and rely on the trigger alone.</p>
 <h2 id="concurrency">Concurrency<a class="headerlink" href="#concurrency" title="Permanent link">&para;</a></h2>
 <p>The trigger takes an advisory transaction lock keyed on the hash of the
 uniqueness value before doing the existence check, so two concurrent

@@ -2,34 +2,34 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://oliverhaas.github.io/django-pgconstraints/main/</loc>
-         <lastmod>2026-04-11</lastmod>
+         <lastmod>2026-04-12</lastmod>
     </url>
     <url>
          <loc>https://oliverhaas.github.io/django-pgconstraints/main/getting-started/installation/</loc>
-         <lastmod>2026-04-11</lastmod>
+         <lastmod>2026-04-12</lastmod>
     </url>
     <url>
          <loc>https://oliverhaas.github.io/django-pgconstraints/main/getting-started/quickstart/</loc>
-         <lastmod>2026-04-11</lastmod>
+         <lastmod>2026-04-12</lastmod>
     </url>
     <url>
          <loc>https://oliverhaas.github.io/django-pgconstraints/main/guide/check-constraint-trigger/</loc>
-         <lastmod>2026-04-11</lastmod>
+         <lastmod>2026-04-12</lastmod>
     </url>
     <url>
          <loc>https://oliverhaas.github.io/django-pgconstraints/main/guide/generated-field-trigger/</loc>
-         <lastmod>2026-04-11</lastmod>
+         <lastmod>2026-04-12</lastmod>
     </url>
     <url>
          <loc>https://oliverhaas.github.io/django-pgconstraints/main/guide/unique-constraint-trigger/</loc>
-         <lastmod>2026-04-11</lastmod>
+         <lastmod>2026-04-12</lastmod>
     </url>
     <url>
          <loc>https://oliverhaas.github.io/django-pgconstraints/main/guide/validation/</loc>
-         <lastmod>2026-04-11</lastmod>
+         <lastmod>2026-04-12</lastmod>
     </url>
     <url>
          <loc>https://oliverhaas.github.io/django-pgconstraints/main/reference/changelog/</loc>
-         <lastmod>2026-04-11</lastmod>
+         <lastmod>2026-04-12</lastmod>
     </url>
 </urlset>

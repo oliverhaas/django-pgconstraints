@@ -631,6 +631,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reconciling-after-a-trigger-bypass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconciling after a trigger bypass
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reconciling after a trigger bypass">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#refresh_dependentqueryset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        refresh_dependent(queryset)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refresh_computed_field-management-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        refresh_computed_field management command
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cycle-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cycle detection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#admin-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Admin integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#validation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -854,6 +915,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reconciling-after-a-trigger-bypass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconciling after a trigger bypass
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reconciling after a trigger bypass">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#refresh_dependentqueryset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        refresh_dependent(queryset)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refresh_computed_field-management-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        refresh_computed_field management command
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cycle-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cycle detection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#admin-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Admin integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#validation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -993,6 +1115,58 @@ replaces the column value. Treat the field as read-only.</p>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">item</span><span class="o">.</span><span class="n">refresh_from_db</span><span class="p">()</span>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">item</span><span class="o">.</span><span class="n">total</span>  <span class="c1"># Decimal(&#39;30.00&#39;)</span>
 </code></pre></div>
+<h2 id="reconciling-after-a-trigger-bypass">Reconciling after a trigger bypass<a class="headerlink" href="#reconciling-after-a-trigger-bypass" title="Permanent link">&para;</a></h2>
+<p>If triggers are bypassed (raw SQL, <code>ALTER TABLE ... DISABLE TRIGGER</code>,
+restoring a dump), computed values go stale. Two tools reconcile them:</p>
+<h3 id="refresh_dependentqueryset"><code>refresh_dependent(queryset)</code><a class="headerlink" href="#refresh_dependentqueryset" title="Permanent link">&para;</a></h3>
+<p>Recomputes every <code>GeneratedFieldTrigger</code> target that depends on the
+queryset's model. Issues one <code>UPDATE ... SET col = col</code> per dependent
+field, scoped to child rows that point at the queryset:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django_pgconstraints</span><span class="w"> </span><span class="kn">import</span> <span class="n">refresh_dependent</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># Only reconcile parts linked to these specific suppliers.</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">refresh_dependent</span><span class="p">(</span><span class="n">Supplier</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pk__in</span><span class="o">=</span><span class="n">changed_ids</span><span class="p">))</span>
+</code></pre></div>
+<p>No-ops when the queryset matches zero rows or no dependent triggers
+exist. Safe to call inside a transaction.</p>
+<h3 id="refresh_computed_field-management-command"><code>refresh_computed_field</code> management command<a class="headerlink" href="#refresh_computed_field-management-command" title="Permanent link">&para;</a></h3>
+<p>Touches every row so the forward trigger recomputes the value:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Refresh a specific field on a specific model.</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>python<span class="w"> </span>manage.py<span class="w"> </span>refresh_computed_field<span class="w"> </span>testapp.Part.markup_amount
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Refresh all GeneratedFieldTrigger fields on a model.</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>python<span class="w"> </span>manage.py<span class="w"> </span>refresh_computed_field<span class="w"> </span>testapp.Part
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># Refresh every managed field in the project.</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>python<span class="w"> </span>manage.py<span class="w"> </span>refresh_computed_field<span class="w"> </span>--all
+</code></pre></div>
+<p>Use this after adding a new trigger to an existing table, or after
+changing the expression of an existing trigger.</p>
+<h2 id="cycle-detection">Cycle detection<a class="headerlink" href="#cycle-detection" title="Permanent link">&para;</a></h2>
+<p>At startup, the package builds a dependency graph of all
+<code>GeneratedFieldTrigger</code> expressions and checks for cycles. If trigger A
+depends on a field that trigger B computes, and B depends on a field A
+computes, a <code>CycleError</code> is raised immediately:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>django_pgconstraints.cycles.CycleError:
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    Computed field cycle detected: myapp.Model.a → myapp.Model.b → myapp.Model.a
+</code></pre></div>
+<p><code>CycleError</code> is importable from the package root:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django_pgconstraints</span><span class="w"> </span><span class="kn">import</span> <span class="n">CycleError</span>
+</code></pre></div>
+<h2 id="admin-integration">Admin integration<a class="headerlink" href="#admin-integration" title="Permanent link">&para;</a></h2>
+<p><code>ComputedFieldsReadOnlyAdminMixin</code> automatically marks every
+<code>GeneratedFieldTrigger</code> target field as read-only in the Django admin,
+preventing users from typing into a field that would be silently
+overwritten on save:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django.contrib</span><span class="w"> </span><span class="kn">import</span> <span class="n">admin</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django_pgconstraints</span><span class="w"> </span><span class="kn">import</span> <span class="n">ComputedFieldsReadOnlyAdminMixin</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="nd">@admin</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Part</span><span class="p">)</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="k">class</span><span class="w"> </span><span class="nc">PartAdmin</span><span class="p">(</span><span class="n">ComputedFieldsReadOnlyAdminMixin</span><span class="p">,</span> <span class="n">admin</span><span class="o">.</span><span class="n">ModelAdmin</span><span class="p">):</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>    <span class="n">list_display</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="s2">&quot;base_price&quot;</span><span class="p">,</span> <span class="s2">&quot;markup_amount&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>The mixin preserves any <code>readonly_fields</code> you declare manually and
+appends the computed fields on top.</p>
 <h2 id="validation">Validation<a class="headerlink" href="#validation" title="Permanent link">&para;</a></h2>
 <p><code>GeneratedFieldTrigger</code> does not participate in <code>full_clean()</code> — it is
 computing a value rather than enforcing a constraint. Whatever the trigger

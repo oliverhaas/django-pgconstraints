@@ -689,13 +689,52 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#010a1-unreleased" class="md-nav__link">
+  <a href="#010-2026-04-12" class="md-nav__link">
     <span class="md-ellipsis">
       
-        0.1.0a1 (Unreleased)
+        0.1.0 (2026-04-12)
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="0.1.0 (2026-04-12)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#trigger-classes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trigger classes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#computed-field-tooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Computed-field tooling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -742,13 +781,52 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#010a1-unreleased" class="md-nav__link">
+  <a href="#010-2026-04-12" class="md-nav__link">
     <span class="md-ellipsis">
       
-        0.1.0a1 (Unreleased)
+        0.1.0 (2026-04-12)
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="0.1.0 (2026-04-12)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#trigger-classes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trigger classes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#computed-field-tooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Computed-field tooling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -773,21 +851,37 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
-<h2 id="010a1-unreleased">0.1.0a1 (Unreleased)<a class="headerlink" href="#010a1-unreleased" title="Permanent link">&para;</a></h2>
-<p>Initial release. Three trigger classes:</p>
+<h2 id="010-2026-04-12">0.1.0 (2026-04-12)<a class="headerlink" href="#010-2026-04-12" title="Permanent link">&para;</a></h2>
+<p>Initial release. Three trigger classes, plus tooling for computed-field
+lifecycle management.</p>
+<h3 id="trigger-classes">Trigger classes<a class="headerlink" href="#trigger-classes" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>UniqueConstraintTrigger</code> — unique constraint with foreign-key
   traversal, Django expressions, partial conditions, <code>nulls_distinct</code>,
-  and deferred timing.</li>
+  deferred timing, and optional <code>index=True</code> backing.</li>
 <li><code>CheckConstraintTrigger</code> — check constraint whose <code>Q</code> can reference
   columns on related models via <code>F("rel__field")</code>.</li>
 <li><code>GeneratedFieldTrigger</code> — trigger-based generated field that supports
   foreign-key traversal in its expression and installs reverse triggers
-  on related models so the value stays in sync.</li>
+  on related models so the value stays in sync. Reverse triggers are
+  statement-level with transition tables for efficient bulk cascading.</li>
 </ul>
-<p>Also ships a Django system check (<code>pgconstraints.E001</code>) that flags
-triggers accidentally placed in <code>Meta.constraints</code> instead of
-<code>Meta.triggers</code>.</p>
+<h3 id="computed-field-tooling">Computed-field tooling<a class="headerlink" href="#computed-field-tooling" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>refresh_dependent(queryset)</code> — recompute dependent computed fields
+  after a trigger bypass (raw SQL, disabled triggers, dump restore).</li>
+<li><code>refresh_computed_field</code> management command — touch rows to force
+  recomputation of specific or all <code>GeneratedFieldTrigger</code> fields.</li>
+<li><code>ComputedFieldsReadOnlyAdminMixin</code> — Django admin mixin that
+  auto-marks computed fields as read-only.</li>
+<li><code>CycleError</code> — raised at startup if <code>GeneratedFieldTrigger</code>
+  dependencies form a cycle.</li>
+</ul>
+<h3 id="infrastructure">Infrastructure<a class="headerlink" href="#infrastructure" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Django system check <code>pgconstraints.E001</code> flags triggers accidentally
+  placed in <code>Meta.constraints</code> instead of <code>Meta.triggers</code>.</li>
+</ul>
 
 
 
