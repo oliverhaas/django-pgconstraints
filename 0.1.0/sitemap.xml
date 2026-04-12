@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://oliverhaas.github.io/django-pgconstraints/0.1.0/</loc>
+         <lastmod>2026-04-12</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/django-pgconstraints/0.1.0/getting-started/installation/</loc>
+         <lastmod>2026-04-12</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/django-pgconstraints/0.1.0/getting-started/quickstart/</loc>
+         <lastmod>2026-04-12</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/django-pgconstraints/0.1.0/guide/check-constraint-trigger/</loc>
+         <lastmod>2026-04-12</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/django-pgconstraints/0.1.0/guide/generated-field-trigger/</loc>
+         <lastmod>2026-04-12</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/django-pgconstraints/0.1.0/guide/unique-constraint-trigger/</loc>
+         <lastmod>2026-04-12</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/django-pgconstraints/0.1.0/guide/validation/</loc>
+         <lastmod>2026-04-12</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/django-pgconstraints/0.1.0/reference/changelog/</loc>
+         <lastmod>2026-04-12</lastmod>
+    </url>
+</urlset>
