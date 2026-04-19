@@ -15,6 +15,7 @@ import pgtrigger.utils
 from django.apps import apps
 from django.db import connection
 
+from django_pgconstraints.sql import _col
 from django_pgconstraints.triggers import (
     GeneratedFieldTrigger,
     _build_chain_back_where,
@@ -64,7 +65,7 @@ def refresh_dependent(queryset: QuerySet) -> None:
                     continue
                 reverse_trigger = cast("_GeneratedFieldReverse", raw_reverse)
                 child_table = qn(child_model._meta.db_table)  # noqa: SLF001
-                target_col = qn(child_model._meta.get_field(trigger.field).column)  # type: ignore[union-attr]  # noqa: SLF001
+                target_col = qn(_col(child_model._meta.get_field(trigger.field)))  # noqa: SLF001
                 where = _build_chain_back_where(reverse_trigger.chain_back, qn, leaf_sql)
                 sql = f"UPDATE {child_table} SET {target_col} = {target_col} WHERE {where}"
                 with connection.cursor() as cur:

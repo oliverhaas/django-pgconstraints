@@ -15,6 +15,18 @@ if TYPE_CHECKING:
 
     from django.db.models import Field, Model
 
+
+def _col(field: Any) -> str:  # noqa: ANN401
+    # django-stubs types Field.column as str | None because it's set by
+    # contribute_to_class. It's always a concrete string by the time our
+    # trigger helpers run.
+    col = field.column
+    if col is None:
+        msg = f"{field!r} has no column"
+        raise RuntimeError(msg)
+    return col
+
+
 # ------------------------------------------------------------------
 # FK-chain field resolution
 # ------------------------------------------------------------------
@@ -53,23 +65,23 @@ def _resolve_field_ref(
             raise ValueError(msg) from None
 
         if field.is_relation:
-            fk_column = field.column  # type: ignore[union-attr]
+            fk_column = _col(field)
             related_model = field.related_model
             if fk_ref is None:
                 fk_ref = f"{row_ref}.{qn(fk_column)}" if row_ref else qn(fk_column)
             else:
                 tbl = qn(current_model._meta.db_table)  # noqa: SLF001
-                pk = qn(current_model._meta.pk.column)  # noqa: SLF001
+                pk = qn(_col(current_model._meta.pk))  # noqa: SLF001
                 fk_ref = f"(SELECT {qn(fk_column)} FROM {tbl} WHERE {pk} = {fk_ref})"
             current_model = related_model  # type: ignore[assignment]
         else:
             # Concrete field found — remaining parts (if any) are the lookup.
-            col = qn(field.column)  # type: ignore[union-attr]
+            col = qn(_col(field))
             if fk_ref is None:
                 sql = f"{row_ref}.{col}" if row_ref else col
             else:
                 tbl = qn(current_model._meta.db_table)  # noqa: SLF001
-                pk = qn(current_model._meta.pk.column)  # noqa: SLF001
+                pk = qn(_col(current_model._meta.pk))  # noqa: SLF001
                 sql = f"(SELECT {col} FROM {tbl} WHERE {pk} = {fk_ref})"
             lookup = "__".join(parts[i + 1 :]) or "exact"
             return sql, lookup
@@ -117,13 +129,13 @@ def _resolve_lhs(
             raise ValueError(msg) from None
 
         if field.is_relation:
-            fk_column = field.column  # type: ignore[union-attr]
+            fk_column = _col(field)
             related_model = field.related_model
             if fk_ref is None:
                 fk_ref = f"{row_ref}.{qn(fk_column)}" if row_ref else qn(fk_column)
             else:
                 tbl = qn(current_model._meta.db_table)  # noqa: SLF001
-                pk = qn(current_model._meta.pk.column)  # noqa: SLF001
+                pk = qn(_col(current_model._meta.pk))  # noqa: SLF001
                 fk_ref = f"(SELECT {qn(fk_column)} FROM {tbl} WHERE {pk} = {fk_ref})"
             current_model = related_model  # type: ignore[assignment]
             # If this is the final segment the user wrote `Q(fk_field=...)` —
@@ -132,12 +144,12 @@ def _resolve_lhs(
                 return fk_ref, [], field.target_field  # type: ignore[union-attr]
             continue
 
-        col = qn(field.column)  # type: ignore[union-attr]
+        col = qn(_col(field))
         if fk_ref is None:
             sql = f"{row_ref}.{col}" if row_ref else col
         else:
             tbl = qn(current_model._meta.db_table)  # noqa: SLF001
-            pk = qn(current_model._meta.pk.column)  # noqa: SLF001
+            pk = qn(_col(current_model._meta.pk))  # noqa: SLF001
             sql = f"(SELECT {col} FROM {tbl} WHERE {pk} = {fk_ref})"
         return sql, parts[i + 1 :], field  # type: ignore[return-value]
 

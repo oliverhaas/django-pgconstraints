@@ -12,7 +12,7 @@ from django.db import DEFAULT_DB_ALIAS, connection
 from django.db.models import Deferrable
 from django.db.models.sql import Query
 
-from django_pgconstraints.sql import _compile_q, _resolve_field_ref
+from django_pgconstraints.sql import _col, _compile_q, _resolve_field_ref
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -576,7 +576,7 @@ def _parse_fk_chain(chain: str, model: type[Model]) -> tuple[list[_FKHop], str]:
         hops.append(
             _FKHop(
                 fk_field_name=part,
-                fk_column=fk_field.column,  # type: ignore[union-attr]
+                fk_column=_col(fk_field),
                 related_model=fk_field.related_model,  # type: ignore[arg-type]
             ),
         )
@@ -811,7 +811,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
                     {
                         "fk_col": hop.fk_column,
                         "table": current._meta.db_table,  # noqa: SLF001
-                        "pk": current._meta.pk.column,  # noqa: SLF001
+                        "pk": _col(current._meta.pk),  # noqa: SLF001
                     },
                 )
                 current = hop.related_model
@@ -822,7 +822,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
             if leaf_key not in seen:
                 seen.add(leaf_key)
                 name_suffix = "__".join(h.fk_field_name for h in hops)
-                leaf_col = leaf_model._meta.get_field(leaf_field).column  # type: ignore[union-attr]  # noqa: SLF001
+                leaf_col = _col(leaf_model._meta.get_field(leaf_field))  # noqa: SLF001
                 result.append(
                     (
                         leaf_model,
