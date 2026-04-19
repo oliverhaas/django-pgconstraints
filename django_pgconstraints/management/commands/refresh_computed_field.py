@@ -17,12 +17,13 @@ from django.apps import apps
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
+from django_pgconstraints.sql import _col
 from django_pgconstraints.triggers import GeneratedFieldTrigger
 
 if TYPE_CHECKING:
     from argparse import ArgumentParser
 
-    from django.db.models import Field, Model
+    from django.db.models import Model
 
 
 class Command(BaseCommand):
@@ -61,8 +62,7 @@ class Command(BaseCommand):
         qn = pgtrigger.utils.quote
         for model, trigger in specs:
             table = qn(model._meta.db_table)  # noqa: SLF001
-            field: Field[Any, Any] = model._meta.get_field(trigger.field)  # type: ignore[assignment]  # noqa: SLF001
-            col = qn(field.column)
+            col = qn(_col(model._meta.get_field(trigger.field)))  # noqa: SLF001
             sql = f"UPDATE {table} SET {col} = {col}"
             self.stdout.write(
                 f"Refreshing {model._meta.label}.{trigger.field} ...",  # noqa: SLF001

@@ -18,8 +18,13 @@ class PgConstraintsConfig(AppConfig):
         _check_and_register_reverse_triggers()
         _register_auto_refresh()
         # Connect without a sender so we install indexes for models in any
-        # app (e.g. testapp) whenever post_migrate fires.
-        post_migrate.connect(_install_unique_indexes)
+        # app (e.g. testapp) whenever post_migrate fires. dispatch_uid keeps
+        # the receiver idempotent if ready() runs twice (some test runners
+        # and management-command paths trigger this).
+        post_migrate.connect(
+            _install_unique_indexes,
+            dispatch_uid="django_pgconstraints.install_unique_indexes",
+        )
 
 
 def _install_unique_indexes(
