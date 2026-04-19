@@ -1253,7 +1253,29 @@ piggybacks on.</p>
 <a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">unique_fields</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">],</span>
 <a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">)</span>
 <a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># objs now carry the trigger-computed values.</span>
-</code></pre></div></li>
+</code></pre></div>
+   Caveats to be aware of before reaching for this as a drop-in:</li>
+<li><strong>Full-instance payload.</strong> <code>bulk_create</code> sends every column on
+     every object, not just <code>update_fields</code>. <code>bulk_update</code> sends only
+     the fields you list. If your objects were rehydrated from the DB
+     you already have them; if you only know the PK and a delta, you'd
+     have to load the rest first.</li>
+<li><strong>Sequence bump on <code>AutoField</code> / <code>BigAutoField</code>.</strong> PostgreSQL
+     calls <code>nextval()</code> during the INSERT attempt before the conflict
+     is detected, so using the upsert path as a pure update burns one
+     sequence ID per row. Cosmetic for 64-bit sequences, but gaps
+     accumulate.</li>
+<li><strong><code>BEFORE INSERT</code> triggers fire before the conflict resolves.</strong>
+     Then <code>BEFORE UPDATE</code> fires for the DO UPDATE branch. Plain
+     <code>bulk_update</code> only fires <code>BEFORE UPDATE</code>. <code>GeneratedFieldTrigger</code>
+     itself is unaffected (it fires on both and recomputes the same
+     value), but other <code>BEFORE INSERT</code> triggers with side effects —
+     auditing, ID minting, logging — will run on what is really an
+     update.</li>
+<li><strong>Performance.</strong> For large batches of pure updates with few
+     columns, the <code>CASE WHEN</code> path <code>bulk_update</code> uses is meaningfully
+     cheaper than an INSERT-with-ON-CONFLICT. For small batches the
+     difference is negligible.</li>
 <li><strong><code>refresh_from_db()</code> per instance</strong> if the set is small.</li>
 </ol>
 <h2 id="reconciling-after-a-trigger-bypass">Reconciling after a trigger bypass<a class="headerlink" href="#reconciling-after-a-trigger-bypass" title="Permanent link">&para;</a></h2>
