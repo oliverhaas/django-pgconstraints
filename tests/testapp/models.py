@@ -147,6 +147,27 @@ class PurchaseItem(models.Model):
         ]
 
 
+# --- GeneratedFieldTrigger: auto_refresh=False opt-out ---
+
+
+class ManualRefreshItem(models.Model):
+    """Opt-out of RETURNING-based auto-refresh for the computed field."""
+
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    quantity = models.IntegerField()
+    total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    class Meta:
+        triggers = [
+            GeneratedFieldTrigger(
+                field="total",
+                expression=F("price") * F("quantity"),
+                auto_refresh=False,
+                name="manualrefreshitem_total",
+            ),
+        ]
+
+
 # --- UniqueConstraintTrigger: index=True backing models (issue #10) ---
 
 

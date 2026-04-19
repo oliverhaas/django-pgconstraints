@@ -721,9 +721,19 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
     - The field is **read-only by convention**: any manual write (via ORM
       or raw SQL) is silently overwritten by the trigger on the next
       INSERT or UPDATE.  The computed value always wins.
-    - After creating or updating an instance, call ``instance.refresh_from_db()``
-      to see the computed value.  The in-memory Python object is not
-      automatically updated by the PostgreSQL trigger.
+
+    **In-memory refresh:**
+
+    By default (``auto_refresh=True``), ``save()`` and ``bulk_create()``
+    piggyback a ``RETURNING`` clause on the statement Django already
+    issues, so the trigger-computed value is written back onto the
+    Python instance without a separate query.  Pass
+    ``auto_refresh=False`` to skip this and call
+    ``instance.refresh_from_db()`` yourself.
+
+    ``QuerySet.update()`` and ``bulk_update()`` do not refresh passed-in
+    instances — those callers must use :func:`~django_pgconstraints.refresh_dependent`
+    or ``refresh_from_db()`` as needed.
 
     **Cascading behavior:**
 
@@ -756,10 +766,12 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
         *,
         field: str,
         expression: BaseExpression,
+        auto_refresh: bool = True,
         **kwargs: Any,  # noqa: ANN401
     ) -> None:
         self.field = field
         self.expression = expression
+        self.auto_refresh = auto_refresh
         super().__init__(**kwargs)
 
     def get_func(self, model: Model) -> str:
