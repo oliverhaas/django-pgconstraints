@@ -10,8 +10,6 @@ recomputes the computed value.  Useful for:
 - Recomputing existing rows after an expression change.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 import pgtrigger.utils

@@ -5,8 +5,6 @@ would cause runaway trigger recursion at runtime.  No persistent state —
 the adjacency map is built transiently, walked with DFS, and discarded.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

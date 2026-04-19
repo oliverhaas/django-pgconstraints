@@ -8,8 +8,6 @@
   dynamic-condition tests use instead of copy-pasted try/finally blocks.
 """
 
-from __future__ import annotations
-
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 

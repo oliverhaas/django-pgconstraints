@@ -1,7 +1,5 @@
 """Django admin mixins for django-pgconstraints."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 from django_pgconstraints.triggers import GeneratedFieldTrigger

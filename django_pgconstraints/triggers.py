@@ -1,7 +1,5 @@
 """pgtrigger-based trigger classes for django-pgconstraints."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 

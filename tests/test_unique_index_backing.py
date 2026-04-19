@@ -5,8 +5,6 @@ install/uninstall lifecycle, pg_indexes introspection, and end-to-end
 duplicate rejection at the index level.
 """
 
-from __future__ import annotations
-
 import pytest
 from django.db import IntegrityError, connection
 from django.db.models import Deferrable, F
