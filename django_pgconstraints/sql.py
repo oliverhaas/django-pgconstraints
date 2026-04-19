@@ -30,6 +30,45 @@ def _col(field: Any) -> str:  # noqa: ANN401
 # ------------------------------------------------------------------
 
 
+def _advance_fk(
+    field: Any,  # noqa: ANN401
+    current_model: type[Model],
+    fk_ref: str | None,
+    qn: Callable[[str], str],
+    row_ref: str,
+) -> tuple[str, Any]:
+    """Advance one FK hop, returning the updated fk_ref and next model.
+
+    First hop anchors on *row_ref* (``NEW."fk_id"``); subsequent hops wrap
+    the previous fk_ref in a sub-select that walks from current_model to
+    the next one.
+    """
+    fk_column = _col(field)
+    if fk_ref is None:
+        new_fk_ref = f"{row_ref}.{qn(fk_column)}" if row_ref else qn(fk_column)
+    else:
+        tbl = qn(current_model._meta.db_table)  # noqa: SLF001
+        pk = qn(_col(current_model._meta.pk))  # noqa: SLF001
+        new_fk_ref = f"(SELECT {qn(fk_column)} FROM {tbl} WHERE {pk} = {fk_ref})"
+    return new_fk_ref, field.related_model
+
+
+def _concrete_col_sql(
+    field: Any,  # noqa: ANN401
+    current_model: type[Model],
+    fk_ref: str | None,
+    qn: Callable[[str], str],
+    row_ref: str,
+) -> str:
+    """Resolve a concrete field to SQL, wrapping in a sub-select if FK hops preceded it."""
+    col = qn(_col(field))
+    if fk_ref is None:
+        return f"{row_ref}.{col}" if row_ref else col
+    tbl = qn(current_model._meta.db_table)  # noqa: SLF001
+    pk = qn(_col(current_model._meta.pk))  # noqa: SLF001
+    return f"(SELECT {col} FROM {tbl} WHERE {pk} = {fk_ref})"
+
+
 def _resolve_field_ref(
     chain: str,
     model: type[Model],
@@ -63,24 +102,10 @@ def _resolve_field_ref(
             raise ValueError(msg) from None
 
         if field.is_relation:
-            fk_column = _col(field)
-            related_model = field.related_model
-            if fk_ref is None:
-                fk_ref = f"{row_ref}.{qn(fk_column)}" if row_ref else qn(fk_column)
-            else:
-                tbl = qn(current_model._meta.db_table)  # noqa: SLF001
-                pk = qn(_col(current_model._meta.pk))  # noqa: SLF001
-                fk_ref = f"(SELECT {qn(fk_column)} FROM {tbl} WHERE {pk} = {fk_ref})"
-            current_model = related_model  # type: ignore[assignment]
+            fk_ref, current_model = _advance_fk(field, current_model, fk_ref, qn, row_ref)
         else:
             # Concrete field found — remaining parts (if any) are the lookup.
-            col = qn(_col(field))
-            if fk_ref is None:
-                sql = f"{row_ref}.{col}" if row_ref else col
-            else:
-                tbl = qn(current_model._meta.db_table)  # noqa: SLF001
-                pk = qn(_col(current_model._meta.pk))  # noqa: SLF001
-                sql = f"(SELECT {col} FROM {tbl} WHERE {pk} = {fk_ref})"
+            sql = _concrete_col_sql(field, current_model, fk_ref, qn, row_ref)
             lookup = "__".join(parts[i + 1 :]) or "exact"
             return sql, lookup
 
@@ -127,28 +152,14 @@ def _resolve_lhs(
             raise ValueError(msg) from None
 
         if field.is_relation:
-            fk_column = _col(field)
-            related_model = field.related_model
-            if fk_ref is None:
-                fk_ref = f"{row_ref}.{qn(fk_column)}" if row_ref else qn(fk_column)
-            else:
-                tbl = qn(current_model._meta.db_table)  # noqa: SLF001
-                pk = qn(_col(current_model._meta.pk))  # noqa: SLF001
-                fk_ref = f"(SELECT {qn(fk_column)} FROM {tbl} WHERE {pk} = {fk_ref})"
-            current_model = related_model  # type: ignore[assignment]
+            fk_ref, current_model = _advance_fk(field, current_model, fk_ref, qn, row_ref)
             # If this is the final segment the user wrote `Q(fk_field=...)` —
             # use the FK column itself as the LHS with an exact lookup.
             if i == len(parts) - 1:
                 return fk_ref, [], field.target_field  # type: ignore[union-attr]
             continue
 
-        col = qn(_col(field))
-        if fk_ref is None:
-            sql = f"{row_ref}.{col}" if row_ref else col
-        else:
-            tbl = qn(current_model._meta.db_table)  # noqa: SLF001
-            pk = qn(_col(current_model._meta.pk))  # noqa: SLF001
-            sql = f"(SELECT {col} FROM {tbl} WHERE {pk} = {fk_ref})"
+        sql = _concrete_col_sql(field, current_model, fk_ref, qn, row_ref)
         return sql, parts[i + 1 :], field  # type: ignore[return-value]
 
     msg = f"Field chain {chain!r} could not be resolved"
