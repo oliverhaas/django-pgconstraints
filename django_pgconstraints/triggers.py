@@ -516,6 +516,8 @@ class CheckConstraintTrigger(pgtrigger.Trigger):
 
         from django.db.models import Q as DjangoQ  # noqa: PLC0415
 
+        # Mirrors Django 6.0's CheckConstraint.validate (db/models/constraints.py).
+        # Re-verify the call signature on Django minor-version upgrades.
         against = instance._get_field_expression_map(meta=model._meta, exclude=exclude)  # type: ignore[attr-defined]  # noqa: SLF001
 
         if not DjangoQ(self.check_condition).check(against, using=using):

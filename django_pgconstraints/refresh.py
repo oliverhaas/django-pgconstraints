@@ -6,7 +6,7 @@ Used to reconcile computed fields after a bulk load or raw-SQL operation
 that bypassed the BEFORE INSERT/UPDATE forward trigger.
 """
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pgtrigger
 import pgtrigger.utils
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from django_pgconstraints.triggers import _GeneratedFieldReverse
 
 
-def refresh_dependent(queryset: QuerySet) -> None:
+def refresh_dependent(queryset: QuerySet[Any]) -> None:
     """Recompute every GeneratedFieldTrigger target that depends on ``queryset``.
 
     For each model ``C`` that has a ``GeneratedFieldTrigger`` whose expression
