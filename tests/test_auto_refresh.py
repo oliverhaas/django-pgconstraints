@@ -83,6 +83,46 @@ def test_bulk_create_populates_instances():
 
 
 # ---------------------------------------------------------------------------
+# bulk_create(update_conflicts=True) — the recommended bulk_update workaround
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bulk_create_update_conflicts_refreshes_existing_rows():
+    """UPSERT path: conflicting PKs hit DO UPDATE and the trigger recomputes."""
+    existing = LineItemFactory.create(price=D("10.00"), quantity=3)
+    assert existing.total == D("30.00")
+
+    staged = LineItem(
+        pk=existing.pk,
+        description=existing.description,
+        price=D("20.00"),
+        quantity=5,
+    )
+    LineItem.objects.bulk_create(
+        [staged],
+        update_conflicts=True,
+        update_fields=["price", "quantity"],
+        unique_fields=["id"],
+    )
+    assert staged.total == D("100.00")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bulk_create_update_conflicts_refreshes_fresh_rows():
+    """Mixed batch: rows without an existing PK go through the INSERT branch."""
+    fresh = LineItem(description="fresh", price=D("3.00"), quantity=7)
+    LineItem.objects.bulk_create(
+        [fresh],
+        update_conflicts=True,
+        update_fields=["price", "quantity"],
+        unique_fields=["id"],
+    )
+    assert fresh.pk is not None
+    assert fresh.total == D("21.00")
+
+
+# ---------------------------------------------------------------------------
 # FK-traversal expression (PurchaseItem.line_total = quantity * part.base_price)
 # ---------------------------------------------------------------------------
 
