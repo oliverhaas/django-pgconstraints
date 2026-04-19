@@ -24,7 +24,9 @@ APIs mirror the Django equivalents so the mental model carries over:
   check whose `Q` can cross foreign keys.
 - [`GeneratedFieldTrigger`](guide/generated-field-trigger.md) — a
   computed column whose expression can reference related rows, with
-  reverse triggers that keep the value in sync.
+  reverse triggers that keep the value in sync and `RETURNING` wiring
+  so `save()` / `bulk_create()` populate the computed value onto the
+  Python instance without a follow-up query.
 
 ## A quick taste
 
