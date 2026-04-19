@@ -16,6 +16,7 @@ GeneratedFieldTrigger(
     *,
     field: str,
     expression: BaseExpression,
+    auto_refresh: bool = True,
     name: str,
 )
 ```
@@ -53,8 +54,10 @@ class LineItem(models.Model):
         ]
 ```
 
-After `save()`, call `instance.refresh_from_db()` to see the computed
-value. The in-memory Python object is not updated by the trigger.
+By default (`auto_refresh=True`), `save()` and `bulk_create()` piggyback
+a `RETURNING` clause on the statement Django already issues, so the
+computed value is written back onto the Python instance with no extra
+round-trip. See [Instance refresh](#instance-refresh) below.
 
 ## Foreign-key traversal and reverse triggers
 
@@ -96,15 +99,77 @@ write to it. Any manual write — ORM or raw SQL — is silently overwritten
 the next time the row is written again, because the trigger reruns and
 replaces the column value. Treat the field as read-only.
 
-Code that needs the computed value right after a save should call
-`refresh_from_db()`:
+## Instance refresh
+
+With `auto_refresh=True` (the default) the Python instance is kept in
+sync with the trigger-computed value for the APIs that already round-trip
+per object:
 
 ```python
-item = LineItem.objects.create(price=10, quantity=3)
-item.total  # Decimal('0') — the Python instance has the default
-item.refresh_from_db()
-item.total  # Decimal('30.00')
+item = LineItem(price=10, quantity=3)
+item.save()
+item.total  # Decimal('30.00') — arrived via RETURNING, no extra SELECT
 ```
+
+| API                                | Refreshed automatically? | Mechanism |
+| ---                                | ---                      | --- |
+| `Model.save()` — INSERT            | Yes                      | `INSERT … RETURNING` |
+| `Model.save()` — UPDATE            | Yes                      | `UPDATE … RETURNING` (single statement) |
+| `Manager.bulk_create(objs)`        | Yes                      | `INSERT … RETURNING` per batch |
+| `Manager.bulk_create(objs, update_conflicts=True, …)` | Yes   | `INSERT … ON CONFLICT DO UPDATE … RETURNING` per batch (upserts) |
+| `Manager.bulk_update(objs, fields)`| **No**                   | See [bulk_update limitation](#bulk_update-limitation) |
+| `QuerySet.update(**kwargs)`        | **No** (no instance)     | Call `refresh_from_db()` or re-query as needed |
+
+Pass `auto_refresh=False` to skip the RETURNING wiring for a specific
+trigger — useful if you never read the computed field from the Python
+instance after writing, or if a third-party layer interferes with the
+extended `returning_fields`. With the opt-out you stay on the
+pre-auto-refresh behavior: the DB has the correct value, the in-memory
+instance does not, and you call `refresh_from_db()` yourself.
+
+### `bulk_update` limitation
+
+`bulk_update` emits a `CASE WHEN … END` UPDATE that returns only a row
+count — the passed-in Python objects keep whatever values they held
+before the call. This is a Django-wide limitation, not specific to
+`GeneratedFieldTrigger`: Django's own `GeneratedField` has the same
+staleness after `bulk_update`.
+
+Django tracks this as [ticket #32406][t32406] (generalizing RETURNING to
+`update()` / `bulk_update()`) with an active but unmerged draft
+[PR #19298][pr19298]. The core-team blocker is API shape, not technical
+doubt. The single-instance `save()` path was fixed earlier via
+[ticket #27222][t27222], which is the same machinery this package
+piggybacks on.
+
+Until `bulk_update` learns to return rows, the options are:
+
+1. **Re-query**: after `bulk_update`, hit the database once more —
+   ```python
+   Model.objects.bulk_update(objs, ["price"])
+   fresh = {o.pk: o for o in Model.objects.filter(pk__in=[o.pk for o in objs])}
+   ```
+2. **Use `bulk_create(update_conflicts=True)` as an upsert.** [Ticket
+   #34698][t34698] (fixed in Django 5.0) made this path populate
+   `RETURNING` fields — including trigger-backed values — onto the
+   passed-in instances, on PostgreSQL / MariaDB 10.5+ / SQLite 3.35+.
+   For workloads that already have full rows in Python, this is a
+   zero-extra-query alternative to `bulk_update`:
+   ```python
+   Model.objects.bulk_create(
+       objs,
+       update_conflicts=True,
+       update_fields=["price", "quantity"],
+       unique_fields=["id"],
+   )
+   # objs now carry the trigger-computed values.
+   ```
+3. **`refresh_from_db()` per instance** if the set is small.
+
+[t32406]: https://code.djangoproject.com/ticket/32406
+[pr19298]: https://github.com/django/django/pull/19298
+[t27222]: https://code.djangoproject.com/ticket/27222
+[t34698]: https://code.djangoproject.com/ticket/34698
 
 ## Reconciling after a trigger bypass
 
