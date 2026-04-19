@@ -18,6 +18,7 @@ class PgConstraintsConfig(AppConfig):
 
     def ready(self) -> None:
         _check_and_register_reverse_triggers()
+        _register_auto_refresh()
         # Connect without a sender so we install indexes for models in any
         # app (e.g. testapp) whenever post_migrate fires.
         post_migrate.connect(_install_unique_indexes)
@@ -56,6 +57,13 @@ def _install_unique_indexes(
         for trigger in getattr(model._meta, "triggers", []):  # noqa: SLF001
             if isinstance(trigger, UniqueConstraintTrigger) and trigger.index:
                 trigger._install_index(model, database=using)  # noqa: SLF001
+
+
+def _register_auto_refresh() -> None:
+    """Wire RETURNING-based refresh for every ``GeneratedFieldTrigger``."""
+    from django_pgconstraints.returning import register_auto_refresh  # noqa: PLC0415
+
+    register_auto_refresh()
 
 
 def _check_and_register_reverse_triggers() -> None:
