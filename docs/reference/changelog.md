@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- `GeneratedFieldTrigger(auto_refresh=True)` (default) — `save()` and
+  `bulk_create()` now populate the trigger-computed value onto the
+  in-memory instance without an extra query, by piggybacking a
+  `RETURNING` clause on the statement Django already issues.
+  `bulk_create(update_conflicts=True)` upserts are also covered. Pass
+  `auto_refresh=False` to opt out per trigger. `QuerySet.update()` and
+  `bulk_update()` remain out of scope — see the guide for why.
+
 ## 0.1.0 (2026-04-12)
 
 Initial release. Three trigger classes, plus tooling for computed-field

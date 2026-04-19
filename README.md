@@ -40,7 +40,9 @@ class OrderLine(models.Model):
   foreign keys (`Q(quantity__lte=F("product__stock"))`).
 - **`GeneratedFieldTrigger`** — a computed column whose expression can
   reference related rows. The package automatically installs reverse
-  triggers so the value stays in sync when that related data changes.
+  triggers so the value stays in sync when that related data changes,
+  and piggybacks `RETURNING` on `save()` / `bulk_create()` so the
+  computed value lands on the Python instance with no extra query.
 
 Each trigger also integrates with Django's `Model.full_clean()` so ORM-level
 validation still catches violations before they hit the database, and each

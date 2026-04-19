@@ -164,6 +164,28 @@ Until `bulk_update` learns to return rows, the options are:
    )
    # objs now carry the trigger-computed values.
    ```
+   Caveats to be aware of before reaching for this as a drop-in:
+   - **Full-instance payload.** `bulk_create` sends every column on
+     every object, not just `update_fields`. `bulk_update` sends only
+     the fields you list. If your objects were rehydrated from the DB
+     you already have them; if you only know the PK and a delta, you'd
+     have to load the rest first.
+   - **Sequence bump on `AutoField` / `BigAutoField`.** PostgreSQL
+     calls `nextval()` during the INSERT attempt before the conflict
+     is detected, so using the upsert path as a pure update burns one
+     sequence ID per row. Cosmetic for 64-bit sequences, but gaps
+     accumulate.
+   - **`BEFORE INSERT` triggers fire before the conflict resolves.**
+     Then `BEFORE UPDATE` fires for the DO UPDATE branch. Plain
+     `bulk_update` only fires `BEFORE UPDATE`. `GeneratedFieldTrigger`
+     itself is unaffected (it fires on both and recomputes the same
+     value), but other `BEFORE INSERT` triggers with side effects —
+     auditing, ID minting, logging — will run on what is really an
+     update.
+   - **Performance.** For large batches of pure updates with few
+     columns, the `CASE WHEN` path `bulk_update` uses is meaningfully
+     cheaper than an INSERT-with-ON-CONFLICT. For small batches the
+     difference is negligible.
 3. **`refresh_from_db()` per instance** if the set is small.
 
 [t32406]: https://code.djangoproject.com/ticket/32406
