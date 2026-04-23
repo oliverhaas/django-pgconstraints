@@ -1,6 +1,6 @@
 [project]
 name = "django-pgconstraints"
-version = "0.1.0"
+version = "0.2.0"
 description = "Declarative PostgreSQL constraint triggers for Django"
 readme = "README.md"
 license = { text = "MIT" }
@@ -31,9 +31,9 @@ Changelog = "https://oliverhaas.github.io/django-pgconstraints/reference/changel
 [dependency-groups]
 dev = [
   "factory-boy==3.3.3",
-  "mypy==1.20.1",
+  "mypy==1.20.2",
   "django-stubs==6.0.3",
-  "pre-commit==4.5.1",
+  "pre-commit==4.6.0",
   "pytest==9.0.3",
   "pytest-cov==7.1.0",
   "pytest-django==4.12.0",
