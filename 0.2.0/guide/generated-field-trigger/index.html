@@ -1,0 +1,1395 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Declarative PostgreSQL constraint triggers for Django">
+      
+      
+      
+        <link rel="canonical" href="https://oliverhaas.github.io/django-pgconstraints/0.2.0/guide/generated-field-trigger/">
+      
+      
+        <link rel="prev" href="../check-constraint-trigger/">
+      
+      
+        <link rel="next" href="../validation/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>GeneratedFieldTrigger - django-pgconstraints</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#generatedfieldtrigger" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="django-pgconstraints" class="md-header__button md-logo" aria-label="django-pgconstraints" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            django-pgconstraints
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GeneratedFieldTrigger
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/oliverhaas/django-pgconstraints" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oliverhaas/django-pgconstraints
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="django-pgconstraints" class="md-nav__button md-logo" aria-label="django-pgconstraints" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    django-pgconstraints
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/oliverhaas/django-pgconstraints" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oliverhaas/django-pgconstraints
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../unique-constraint-trigger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UniqueConstraintTrigger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../check-constraint-trigger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CheckConstraintTrigger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GeneratedFieldTrigger
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GeneratedFieldTrigger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-differs-from-generatedfield" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it differs from GeneratedField
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#simple-expression-same-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Simple expression (same table)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#foreign-key-traversal-and-reverse-triggers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Foreign-key traversal and reverse triggers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#read-only-by-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Read-only by convention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#instance-refresh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Instance refresh
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Instance refresh">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bulk_update-limitation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bulk_update limitation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reconciling-after-a-trigger-bypass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconciling after a trigger bypass
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reconciling after a trigger bypass">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#refresh_dependentqueryset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        refresh_dependent(queryset)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refresh_computed_field-management-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        refresh_computed_field management command
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cycle-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cycle detection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#admin-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Admin integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-differs-from-generatedfield" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it differs from GeneratedField
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#simple-expression-same-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Simple expression (same table)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#foreign-key-traversal-and-reverse-triggers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Foreign-key traversal and reverse triggers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#read-only-by-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Read-only by convention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#instance-refresh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Instance refresh
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Instance refresh">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bulk_update-limitation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bulk_update limitation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reconciling-after-a-trigger-bypass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconciling after a trigger bypass
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reconciling after a trigger bypass">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#refresh_dependentqueryset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        refresh_dependent(queryset)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refresh_computed_field-management-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        refresh_computed_field management command
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cycle-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cycle detection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#admin-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Admin integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="generatedfieldtrigger">GeneratedFieldTrigger<a class="headerlink" href="#generatedfieldtrigger" title="Permanent link">&para;</a></h1>
+<p>A trigger-driven computed column whose expression can reference related
+rows. When a foreign-key chain appears in the expression, the package
+also installs reverse triggers on those related models so the value
+stays in sync when the referenced data changes.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django_pgconstraints</span><span class="w"> </span><span class="kn">import</span> <span class="n">GeneratedFieldTrigger</span>
+</code></pre></div>
+<h2 id="signature">Signature<a class="headerlink" href="#signature" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">GeneratedFieldTrigger</span><span class="p">(</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">field</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">expression</span><span class="p">:</span> <span class="n">BaseExpression</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">auto_refresh</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="p">)</span>
+</code></pre></div>
+<h2 id="how-it-differs-from-generatedfield">How it differs from <code>GeneratedField</code><a class="headerlink" href="#how-it-differs-from-generatedfield" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>GeneratedField</code></th>
+<th><code>GeneratedFieldTrigger</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Storage</td>
+<td>PostgreSQL <code>GENERATED ALWAYS AS … STORED</code></td>
+<td>Regular column kept in sync by a <code>BEFORE INSERT OR UPDATE</code> trigger</td>
+</tr>
+<tr>
+<td>FK traversal in the expression</td>
+<td>Not supported</td>
+<td>Supported (<code>F("product__price")</code>)</td>
+</tr>
+<tr>
+<td>Target column definition</td>
+<td>Declared implicitly</td>
+<td>Must be defined manually on the model</td>
+</tr>
+<tr>
+<td>External writes</td>
+<td>Rejected by PostgreSQL</td>
+<td>Silently overwritten on next write</td>
+</tr>
+</tbody>
+</table>
+<p>The target column is a regular field, which means you define it like any
+other field — pick a type and a default that is valid until the trigger
+runs.</p>
+<h2 id="simple-expression-same-table">Simple expression (same table)<a class="headerlink" href="#simple-expression-same-table" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django.db.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">F</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">LineItem</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">price</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">DecimalField</span><span class="p">(</span><span class="n">max_digits</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">decimal_places</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">quantity</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">IntegerField</span><span class="p">()</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">total</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">DecimalField</span><span class="p">(</span><span class="n">max_digits</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">decimal_places</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="k">class</span><span class="w"> </span><span class="nc">Meta</span><span class="p">:</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>        <span class="n">triggers</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>            <span class="n">GeneratedFieldTrigger</span><span class="p">(</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>                <span class="n">field</span><span class="o">=</span><span class="s2">&quot;total&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>                <span class="n">expression</span><span class="o">=</span><span class="n">F</span><span class="p">(</span><span class="s2">&quot;price&quot;</span><span class="p">)</span> <span class="o">*</span> <span class="n">F</span><span class="p">(</span><span class="s2">&quot;quantity&quot;</span><span class="p">),</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>                <span class="n">name</span><span class="o">=</span><span class="s2">&quot;lineitem_total&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>            <span class="p">),</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>        <span class="p">]</span>
+</code></pre></div>
+<p>By default (<code>auto_refresh=True</code>), <code>save()</code> and <code>bulk_create()</code> piggyback
+a <code>RETURNING</code> clause on the statement Django already issues, so the
+computed value is written back onto the Python instance with no extra
+round-trip. See <a href="#instance-refresh">Instance refresh</a> below.</p>
+<h2 id="foreign-key-traversal-and-reverse-triggers">Foreign-key traversal and reverse triggers<a class="headerlink" href="#foreign-key-traversal-and-reverse-triggers" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">Supplier</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">markup_pct</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">IntegerField</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="k">class</span><span class="w"> </span><span class="nc">Part</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">supplier</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">ForeignKey</span><span class="p">(</span><span class="n">Supplier</span><span class="p">,</span> <span class="n">on_delete</span><span class="o">=</span><span class="n">models</span><span class="o">.</span><span class="n">CASCADE</span><span class="p">)</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">base_price</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">DecimalField</span><span class="p">(</span><span class="n">max_digits</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">decimal_places</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">markup_amount</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">DecimalField</span><span class="p">(</span><span class="n">max_digits</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">decimal_places</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="k">class</span><span class="w"> </span><span class="nc">Meta</span><span class="p">:</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>        <span class="n">triggers</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>            <span class="n">GeneratedFieldTrigger</span><span class="p">(</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>                <span class="n">field</span><span class="o">=</span><span class="s2">&quot;markup_amount&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>                <span class="n">expression</span><span class="o">=</span><span class="n">F</span><span class="p">(</span><span class="s2">&quot;base_price&quot;</span><span class="p">)</span> <span class="o">*</span> <span class="n">F</span><span class="p">(</span><span class="s2">&quot;supplier__markup_pct&quot;</span><span class="p">)</span> <span class="o">/</span> <span class="mi">100</span><span class="p">,</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>                <span class="n">name</span><span class="o">=</span><span class="s2">&quot;part_markup_amount&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>            <span class="p">),</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>        <span class="p">]</span>
+</code></pre></div>
+<p>On every <code>INSERT</code> or <code>UPDATE</code> of a <code>Part</code> the forward trigger recomputes
+<code>markup_amount</code> from the current <code>Supplier.markup_pct</code>.</p>
+<p>In addition, the package installs a <strong>reverse trigger</strong> on <code>Supplier</code>:
+whenever <code>Supplier.markup_pct</code> changes, every related <code>Part</code> row has its
+<code>markup_amount</code> recomputed in the same transaction. Reverse triggers are
+registered from <code>AppConfig.ready()</code> and follow arbitrary-depth FK chains
+— if the expression is <code>F("part__supplier__markup_pct")</code>, reverse
+triggers are installed on both <code>Part</code> (for changes to <code>Part.supplier_id</code>)
+and <code>Supplier</code> (for changes to <code>markup_pct</code>).</p>
+<h2 id="read-only-by-convention">Read-only by convention<a class="headerlink" href="#read-only-by-convention" title="Permanent link">&para;</a></h2>
+<p>The target column is a regular column; PostgreSQL will happily let you
+write to it. Any manual write — ORM or raw SQL — is silently overwritten
+the next time the row is written again, because the trigger reruns and
+replaces the column value. Treat the field as read-only.</p>
+<h2 id="instance-refresh">Instance refresh<a class="headerlink" href="#instance-refresh" title="Permanent link">&para;</a></h2>
+<p>With <code>auto_refresh=True</code> (the default) the Python instance is kept in
+sync with the trigger-computed value for the APIs that already round-trip
+per object:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">item</span> <span class="o">=</span> <span class="n">LineItem</span><span class="p">(</span><span class="n">price</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">quantity</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">item</span><span class="o">.</span><span class="n">save</span><span class="p">()</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">item</span><span class="o">.</span><span class="n">total</span>  <span class="c1"># Decimal(&#39;30.00&#39;) — arrived via RETURNING, no extra SELECT</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>API</th>
+<th>Refreshed automatically?</th>
+<th>Mechanism</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Model.save()</code> — INSERT</td>
+<td>Yes</td>
+<td><code>INSERT … RETURNING</code></td>
+</tr>
+<tr>
+<td><code>Model.save()</code> — UPDATE</td>
+<td>Yes</td>
+<td><code>UPDATE … RETURNING</code> (single statement)</td>
+</tr>
+<tr>
+<td><code>Manager.bulk_create(objs)</code></td>
+<td>Yes</td>
+<td><code>INSERT … RETURNING</code> per batch</td>
+</tr>
+<tr>
+<td><code>Manager.bulk_create(objs, update_conflicts=True, …)</code></td>
+<td>Yes</td>
+<td><code>INSERT … ON CONFLICT DO UPDATE … RETURNING</code> per batch (upserts)</td>
+</tr>
+<tr>
+<td><code>Manager.bulk_update(objs, fields)</code></td>
+<td><strong>No</strong></td>
+<td>See <a href="#bulk_update-limitation">bulk_update limitation</a></td>
+</tr>
+<tr>
+<td><code>QuerySet.update(**kwargs)</code></td>
+<td><strong>No</strong> (no instance)</td>
+<td>Call <code>refresh_from_db()</code> or re-query as needed</td>
+</tr>
+</tbody>
+</table>
+<p>Pass <code>auto_refresh=False</code> to skip the RETURNING wiring for a specific
+trigger — useful if you never read the computed field from the Python
+instance after writing, or if a third-party layer interferes with the
+extended <code>returning_fields</code>. With the opt-out you stay on the
+pre-auto-refresh behavior: the DB has the correct value, the in-memory
+instance does not, and you call <code>refresh_from_db()</code> yourself.</p>
+<h3 id="bulk_update-limitation"><code>bulk_update</code> limitation<a class="headerlink" href="#bulk_update-limitation" title="Permanent link">&para;</a></h3>
+<p><code>bulk_update</code> emits a <code>CASE WHEN … END</code> UPDATE that returns only a row
+count — the passed-in Python objects keep whatever values they held
+before the call. This is a Django-wide limitation, not specific to
+<code>GeneratedFieldTrigger</code>: Django's own <code>GeneratedField</code> has the same
+staleness after <code>bulk_update</code>.</p>
+<p>Django tracks this as <a href="https://code.djangoproject.com/ticket/32406">ticket #32406</a> (generalizing RETURNING to
+<code>update()</code> / <code>bulk_update()</code>) with an active but unmerged draft
+<a href="https://github.com/django/django/pull/19298">PR #19298</a>. The core-team blocker is API shape, not technical
+doubt. The single-instance <code>save()</code> path was fixed earlier via
+<a href="https://code.djangoproject.com/ticket/27222">ticket #27222</a>, which is the same machinery this package
+piggybacks on.</p>
+<p>Until <code>bulk_update</code> learns to return rows, the options are:</p>
+<ol>
+<li><strong>Re-query</strong>: after <code>bulk_update</code>, hit the database once more —
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">Model</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">bulk_update</span><span class="p">(</span><span class="n">objs</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;price&quot;</span><span class="p">])</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">fresh</span> <span class="o">=</span> <span class="p">{</span><span class="n">o</span><span class="o">.</span><span class="n">pk</span><span class="p">:</span> <span class="n">o</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">Model</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pk__in</span><span class="o">=</span><span class="p">[</span><span class="n">o</span><span class="o">.</span><span class="n">pk</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">])}</span>
+</code></pre></div></li>
+<li><strong>Use <code>bulk_create(update_conflicts=True)</code> as an upsert.</strong> <a href="https://code.djangoproject.com/ticket/34698">Ticket
+   #34698</a> (fixed in Django 5.0) made this path populate
+   <code>RETURNING</code> fields — including trigger-backed values — onto the
+   passed-in instances, on PostgreSQL / MariaDB 10.5+ / SQLite 3.35+.
+   For workloads that already have full rows in Python, this is a
+   zero-extra-query alternative to <code>bulk_update</code>:
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">Model</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">bulk_create</span><span class="p">(</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="n">objs</span><span class="p">,</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">update_conflicts</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">update_fields</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;price&quot;</span><span class="p">,</span> <span class="s2">&quot;quantity&quot;</span><span class="p">],</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">unique_fields</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">],</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># objs now carry the trigger-computed values.</span>
+</code></pre></div>
+   Caveats to be aware of before reaching for this as a drop-in:</li>
+<li><strong>Full-instance payload.</strong> <code>bulk_create</code> sends every column on
+     every object, not just <code>update_fields</code>. <code>bulk_update</code> sends only
+     the fields you list. If your objects were rehydrated from the DB
+     you already have them; if you only know the PK and a delta, you'd
+     have to load the rest first.</li>
+<li><strong>Sequence bump on <code>AutoField</code> / <code>BigAutoField</code>.</strong> PostgreSQL
+     calls <code>nextval()</code> during the INSERT attempt before the conflict
+     is detected, so using the upsert path as a pure update burns one
+     sequence ID per row. Cosmetic for 64-bit sequences, but gaps
+     accumulate.</li>
+<li><strong><code>BEFORE INSERT</code> triggers fire before the conflict resolves.</strong>
+     Then <code>BEFORE UPDATE</code> fires for the DO UPDATE branch. Plain
+     <code>bulk_update</code> only fires <code>BEFORE UPDATE</code>. <code>GeneratedFieldTrigger</code>
+     itself is unaffected (it fires on both and recomputes the same
+     value), but other <code>BEFORE INSERT</code> triggers with side effects —
+     auditing, ID minting, logging — will run on what is really an
+     update.</li>
+<li><strong>Performance.</strong> For large batches of pure updates with few
+     columns, the <code>CASE WHEN</code> path <code>bulk_update</code> uses is meaningfully
+     cheaper than an INSERT-with-ON-CONFLICT. For small batches the
+     difference is negligible.</li>
+<li><strong><code>refresh_from_db()</code> per instance</strong> if the set is small.</li>
+</ol>
+<h2 id="reconciling-after-a-trigger-bypass">Reconciling after a trigger bypass<a class="headerlink" href="#reconciling-after-a-trigger-bypass" title="Permanent link">&para;</a></h2>
+<p>If triggers are bypassed (raw SQL, <code>ALTER TABLE ... DISABLE TRIGGER</code>,
+restoring a dump), computed values go stale. Two tools reconcile them:</p>
+<h3 id="refresh_dependentqueryset"><code>refresh_dependent(queryset)</code><a class="headerlink" href="#refresh_dependentqueryset" title="Permanent link">&para;</a></h3>
+<p>Recomputes every <code>GeneratedFieldTrigger</code> target that depends on the
+queryset's model. Issues one <code>UPDATE ... SET col = col</code> per dependent
+field, scoped to child rows that point at the queryset:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django_pgconstraints</span><span class="w"> </span><span class="kn">import</span> <span class="n">refresh_dependent</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># Only reconcile parts linked to these specific suppliers.</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">refresh_dependent</span><span class="p">(</span><span class="n">Supplier</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pk__in</span><span class="o">=</span><span class="n">changed_ids</span><span class="p">))</span>
+</code></pre></div>
+<p>No-ops when the queryset matches zero rows or no dependent triggers
+exist. Safe to call inside a transaction.</p>
+<h3 id="refresh_computed_field-management-command"><code>refresh_computed_field</code> management command<a class="headerlink" href="#refresh_computed_field-management-command" title="Permanent link">&para;</a></h3>
+<p>Touches every row so the forward trigger recomputes the value:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Refresh a specific field on a specific model.</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>python<span class="w"> </span>manage.py<span class="w"> </span>refresh_computed_field<span class="w"> </span>testapp.Part.markup_amount
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Refresh all GeneratedFieldTrigger fields on a model.</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>python<span class="w"> </span>manage.py<span class="w"> </span>refresh_computed_field<span class="w"> </span>testapp.Part
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1"># Refresh every managed field in the project.</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>python<span class="w"> </span>manage.py<span class="w"> </span>refresh_computed_field<span class="w"> </span>--all
+</code></pre></div>
+<p>Use this after adding a new trigger to an existing table, or after
+changing the expression of an existing trigger.</p>
+<h2 id="cycle-detection">Cycle detection<a class="headerlink" href="#cycle-detection" title="Permanent link">&para;</a></h2>
+<p>At startup, the package builds a dependency graph of all
+<code>GeneratedFieldTrigger</code> expressions and checks for cycles. If trigger A
+depends on a field that trigger B computes, and B depends on a field A
+computes, a <code>CycleError</code> is raised immediately:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>django_pgconstraints.cycles.CycleError:
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    Computed field cycle detected: myapp.Model.a → myapp.Model.b → myapp.Model.a
+</code></pre></div>
+<p><code>CycleError</code> is importable from the package root:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django_pgconstraints</span><span class="w"> </span><span class="kn">import</span> <span class="n">CycleError</span>
+</code></pre></div>
+<h2 id="admin-integration">Admin integration<a class="headerlink" href="#admin-integration" title="Permanent link">&para;</a></h2>
+<p><code>ComputedFieldsReadOnlyAdminMixin</code> automatically marks every
+<code>GeneratedFieldTrigger</code> target field as read-only in the Django admin,
+preventing users from typing into a field that would be silently
+overwritten on save:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django.contrib</span><span class="w"> </span><span class="kn">import</span> <span class="n">admin</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django_pgconstraints</span><span class="w"> </span><span class="kn">import</span> <span class="n">ComputedFieldsReadOnlyAdminMixin</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="nd">@admin</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Part</span><span class="p">)</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="k">class</span><span class="w"> </span><span class="nc">PartAdmin</span><span class="p">(</span><span class="n">ComputedFieldsReadOnlyAdminMixin</span><span class="p">,</span> <span class="n">admin</span><span class="o">.</span><span class="n">ModelAdmin</span><span class="p">):</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="n">list_display</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="s2">&quot;base_price&quot;</span><span class="p">,</span> <span class="s2">&quot;markup_amount&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>The mixin preserves any <code>readonly_fields</code> you declare manually and
+appends the computed fields on top.</p>
+<h2 id="validation">Validation<a class="headerlink" href="#validation" title="Permanent link">&para;</a></h2>
+<p><code>GeneratedFieldTrigger</code> does not participate in <code>full_clean()</code> — it is
+computing a value rather than enforcing a constraint. Whatever the trigger
+produces is what ends up in the column.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.instant.progress", "navigation.tracking", "navigation.sections", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
