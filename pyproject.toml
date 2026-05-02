@@ -40,7 +40,7 @@ dev = [
   "pytest-flakefinder==1.1.0",
   "pytest-xdist==3.8.0",
   "ruff==0.15.12",
-  "psycopg[c]==3.3.3",
+  "psycopg[c]==3.3.4",
   "testcontainers[postgres]==4.14.2",
 ]
 docs = ["mkdocs==1.6.1", "mkdocs-material==9.7.6", "mike==2.2.0"]
