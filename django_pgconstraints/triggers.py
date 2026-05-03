@@ -1,5 +1,6 @@
 """pgtrigger-based trigger classes for django-pgconstraints."""
 
+import hashlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -25,6 +26,29 @@ if TYPE_CHECKING:
 
     from django.db.models import Model, Q
     from django.db.models.expressions import BaseExpression
+
+
+# pgtrigger caps trigger names at 47 chars; long aggregate chain paths
+# (e.g. ``accounts__subscriptions__charges``) blow past that, so we
+# fall back to a stable short hash when the human-readable form is too
+# long. Reserve a few chars for the trailing ``_<hash>`` suffix and
+# the surrounding ``{base}_agg_{op}_`` framing.
+_MAX_TRIGGER_NAME_LENGTH = 47
+_TRIGGER_NAME_HASH_LENGTH = 8
+
+
+def _aggregate_trigger_name(base: str | None, op_name: str, rel_path: str) -> str:
+    """Build a unique aggregate-trigger name that fits pgtrigger's length limit.
+
+    Prefer the readable form ``{base}_agg_{op}_{rel_path}``; if that
+    overflows, replace ``rel_path`` with a hash of the original path so
+    the name stays stable across runs and unique per chain.
+    """
+    candidate = f"{base}_agg_{op_name}_{rel_path}"
+    if len(candidate) <= _MAX_TRIGGER_NAME_LENGTH:
+        return candidate
+    digest = hashlib.md5(rel_path.encode(), usedforsecurity=False).hexdigest()[:_TRIGGER_NAME_HASH_LENGTH]
+    return f"{base}_agg_{op_name}_{digest}"
 
 
 # ======================================================================
@@ -1086,7 +1110,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
                             chain=agg_chain_key,
                             operation_name=op_name,
                             aggregated_columns=aggregated_columns,
-                            name=f"{self.name}_agg_{op_name}_{rel_path}",
+                            name=_aggregate_trigger_name(self.name, op_name, rel_path),
                         ),
                     ),
                 )
@@ -1114,7 +1138,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
                                 # Aggregated columns live on the *leaf*; an
                                 # intermediate row never carries them.
                                 aggregated_columns=(),
-                                name=f"{self.name}_agg_{op_name}_{sub_rel_path}",
+                                name=_aggregate_trigger_name(self.name, op_name, sub_rel_path),
                             ),
                         ),
                     )

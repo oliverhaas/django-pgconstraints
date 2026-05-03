@@ -223,6 +223,36 @@ class CartItem(models.Model):
     note = models.CharField(max_length=100, default="")
 
 
+# --- GeneratedFieldTrigger: 3-hop aggregate (Tenant → Account → Subscription → Charge) ---
+
+
+class Tenant(models.Model):
+    name = models.CharField(max_length=100)
+    lifetime_revenue = models.IntegerField(default=0)
+
+    class Meta:
+        triggers = [
+            GeneratedFieldTrigger(
+                field="lifetime_revenue",
+                expression=Sum("accounts__subscriptions__charges__amount"),
+                name="tenant_lifetime_revenue",
+            ),
+        ]
+
+
+class Account(models.Model):
+    tenant = models.ForeignKey(Tenant, related_name="accounts", on_delete=models.CASCADE)
+
+
+class Subscription(models.Model):
+    account = models.ForeignKey(Account, related_name="subscriptions", on_delete=models.CASCADE)
+
+
+class Charge(models.Model):
+    subscription = models.ForeignKey(Subscription, related_name="charges", on_delete=models.CASCADE)
+    amount = models.IntegerField()
+
+
 # --- UniqueConstraintTrigger: index=True backing models (issue #10) ---
 
 

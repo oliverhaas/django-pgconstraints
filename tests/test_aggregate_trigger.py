@@ -10,7 +10,17 @@ red and turn green as the implementation grows.
 
 import pytest
 from django.db.models import Avg, Count, Max, Min, Sum
-from testapp.models import Cart, CartItem, Customer, Invoice, InvoiceLine
+from testapp.models import (
+    Account,
+    Cart,
+    CartItem,
+    Charge,
+    Customer,
+    Invoice,
+    InvoiceLine,
+    Subscription,
+    Tenant,
+)
 
 from django_pgconstraints import GeneratedFieldTrigger
 from django_pgconstraints.cycles import CycleError, check_for_cycles
@@ -554,6 +564,131 @@ def test_multi_hop_cascade_delete_of_root_does_not_error():
     assert not Customer.objects.exists()
     assert not Cart.objects.exists()
     assert not CartItem.objects.exists()
+
+
+# ---------------------------------------------------------------------------
+# 3-hop sanity (Tenant → Account → Subscription → Charge)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_three_hop_aggregate_compiles_to_triple_nested_select():
+    sql = _resolve_reverse_aggregate(
+        Sum("accounts__subscriptions__charges__amount"),
+        Tenant,
+        _q,
+        row_ref="NEW",
+    )
+    assert sql == (
+        'COALESCE((SELECT SUM("amount") FROM "testapp_charge" '
+        'WHERE "subscription_id" IN ('
+        'SELECT "id" FROM "testapp_subscription" '
+        'WHERE "account_id" IN ('
+        'SELECT "id" FROM "testapp_account" WHERE "tenant_id" = NEW."id"'
+        ")"
+        ")), 0)"
+    )
+
+
+@pytest.mark.django_db
+def test_three_hop_leaf_insert_propagates():
+    tenant = Tenant.objects.create(name="acme")
+    account = Account.objects.create(tenant=tenant)
+    sub = Subscription.objects.create(account=account)
+    Charge.objects.create(subscription=sub, amount=10)
+    Charge.objects.create(subscription=sub, amount=15)
+
+    tenant.refresh_from_db()
+    assert tenant.lifetime_revenue == 25
+
+
+@pytest.mark.django_db
+def test_three_hop_leaf_amount_update_propagates():
+    tenant = Tenant.objects.create(name="acme")
+    account = Account.objects.create(tenant=tenant)
+    sub = Subscription.objects.create(account=account)
+    charge = Charge.objects.create(subscription=sub, amount=10)
+    tenant.refresh_from_db()
+    assert tenant.lifetime_revenue == 10
+
+    charge.amount = 99
+    charge.save()
+
+    tenant.refresh_from_db()
+    assert tenant.lifetime_revenue == 99
+
+
+@pytest.mark.django_db
+def test_three_hop_intermediate_pivot_at_top_level():
+    """Account pivots between Tenants. The Account UPDATE trigger walks
+    through one hop (Account.tenant_id) to refresh both old and new
+    tenant aggregates."""
+    a = Tenant.objects.create(name="acme")
+    b = Tenant.objects.create(name="beta")
+    account = Account.objects.create(tenant=a)
+    sub = Subscription.objects.create(account=account)
+    Charge.objects.create(subscription=sub, amount=42)
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.lifetime_revenue == 42
+    assert b.lifetime_revenue == 0
+
+    account.tenant = b
+    account.save()
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.lifetime_revenue == 0
+    assert b.lifetime_revenue == 42
+
+
+@pytest.mark.django_db
+def test_three_hop_intermediate_pivot_at_middle_level():
+    """Subscription pivots between Accounts (which belong to different
+    Tenants). The Subscription UPDATE trigger walks through two hops
+    (Subscription.account_id → Account.tenant_id) to refresh both
+    tenants."""
+    a = Tenant.objects.create(name="acme")
+    b = Tenant.objects.create(name="beta")
+    account_a = Account.objects.create(tenant=a)
+    account_b = Account.objects.create(tenant=b)
+    sub = Subscription.objects.create(account=account_a)
+    Charge.objects.create(subscription=sub, amount=100)
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.lifetime_revenue == 100
+    assert b.lifetime_revenue == 0
+
+    sub.account = account_b
+    sub.save()
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.lifetime_revenue == 0
+    assert b.lifetime_revenue == 100
+
+
+@pytest.mark.django_db
+def test_three_hop_intermediate_delete_propagates():
+    """Deleting a middle Subscription cascades to its Charges; the
+    Subscription DELETE trigger walks two hops up to recompute the
+    tenant's revenue (the leaf trigger can't, because the Subscription
+    row it would walk through is being deleted in the same statement)."""
+    tenant = Tenant.objects.create(name="acme")
+    account = Account.objects.create(tenant=tenant)
+    sub_keep = Subscription.objects.create(account=account)
+    sub_drop = Subscription.objects.create(account=account)
+    Charge.objects.create(subscription=sub_keep, amount=10)
+    Charge.objects.create(subscription=sub_drop, amount=99)
+    tenant.refresh_from_db()
+    assert tenant.lifetime_revenue == 109
+
+    sub_drop.delete()
+
+    tenant.refresh_from_db()
+    assert tenant.lifetime_revenue == 10
 
 
 @pytest.mark.django_db
