@@ -168,6 +168,20 @@ class ManualRefreshItem(models.Model):
         ]
 
 
+# --- GeneratedFieldTrigger: aggregate over reverse relation ---
+
+
+class Invoice(models.Model):
+    """Parent of InvoiceLine. ``total`` is the SUM of related line amounts."""
+
+    total = models.IntegerField(default=0)
+
+
+class InvoiceLine(models.Model):
+    invoice = models.ForeignKey(Invoice, related_name="lines", on_delete=models.CASCADE)
+    amount = models.IntegerField()
+
+
 # --- UniqueConstraintTrigger: index=True backing models (issue #10) ---
 
 
