@@ -13,7 +13,7 @@ import pgtrigger.utils
 from django.apps import apps
 from django.db import connection
 
-from django_pgconstraints.sql import _col
+from django_pgconstraints.sql import _col, _walk_aggregate_chain_to_root
 from django_pgconstraints.triggers import (
     GeneratedFieldTrigger,
     _build_chain_back_where,
@@ -109,16 +109,13 @@ def _build_refresh_sql(  # noqa: PLR0913
 
     if isinstance(reverse_trigger, _GeneratedFieldAggregateReverse):
         owner_pk = qn(_col(owner_model._meta.pk))  # noqa: SLF001
-        child_table = qn(related_model._meta.db_table)  # noqa: SLF001
-        child_pk = qn(_col(related_model._meta.pk))  # noqa: SLF001
-        fk_col = qn(reverse_trigger.fk_column)
-        return (
-            f"UPDATE {owner_table} SET {target_col} = {target_col} "
-            f"WHERE {owner_pk} IN ("
-            f"SELECT DISTINCT {fk_col} FROM {child_table} "
-            f"WHERE {fk_col} IS NOT NULL AND {child_pk} IN ({leaf_sql})"
-            f")"
-        )
+        leaf_table = qn(related_model._meta.db_table)  # noqa: SLF001
+        leaf_pk = qn(_col(related_model._meta.pk))  # noqa: SLF001
+        leaf_fk = qn(reverse_trigger.leaf_fk_column)
+        # Seed: project the leaf-level FK from rows the queryset matched.
+        seed = f"SELECT DISTINCT {leaf_fk} FROM {leaf_table} WHERE {leaf_fk} IS NOT NULL AND {leaf_pk} IN ({leaf_sql})"
+        affected = _walk_aggregate_chain_to_root(reverse_trigger.chain, qn, seed)
+        return f"UPDATE {owner_table} SET {target_col} = {target_col} WHERE {owner_pk} IN ({affected})"
 
     msg = f"Unsupported reverse trigger type: {type(reverse_trigger).__name__}"
     raise TypeError(msg)

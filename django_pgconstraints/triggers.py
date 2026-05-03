@@ -11,10 +11,13 @@ from django.db.models import Deferrable
 from django.db.models.sql import Query
 
 from django_pgconstraints.sql import (
+    _AggregateHop,
     _col,
     _compile_q,
+    _parse_aggregate_chain,
     _resolve_field_ref,
     _resolve_reverse_aggregate,
+    _walk_aggregate_chain_to_root,
 )
 
 if TYPE_CHECKING:
@@ -782,7 +785,7 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
         parent_model_label: str,
         parent_field: str,
         expression: BaseExpression,
-        fk_column: str,
+        chain: tuple[_AggregateHop, ...],
         operation_name: str,
         aggregated_columns: tuple[str, ...] = (),
         **kwargs: Any,  # noqa: ANN401
@@ -790,10 +793,13 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
         if operation_name not in self._OPERATION_MAP:
             msg = f"Unsupported operation_name: {operation_name!r}"
             raise ValueError(msg)
+        if not chain:
+            msg = "chain must contain at least one hop"
+            raise ValueError(msg)
         self.parent_model_label = parent_model_label
         self.parent_field = parent_field
         self.expression = expression
-        self.fk_column = fk_column
+        self.chain = chain
         self.operation_name = operation_name
         self.aggregated_columns = aggregated_columns
 
@@ -806,6 +812,11 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
             kwargs.setdefault("referencing", pgtrigger.Referencing(old="old_rows", new="new_rows"))
         super().__init__(**kwargs)
 
+    @property
+    def leaf_fk_column(self) -> str:
+        """FK column on the leaf table that points up to the next-level table."""
+        return self.chain[-1].fk_column
+
     def get_func(self, model: Model) -> str:
         from django.apps import apps  # noqa: PLC0415
 
@@ -815,20 +826,19 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
         parent_table = qn(parent_model._meta.db_table)  # noqa: SLF001
         parent_pk_col = qn(_col(parent_model._meta.pk))  # noqa: SLF001
         parent_field_col = qn(_col(parent_model._meta.get_field(self.parent_field)))  # noqa: SLF001
-        fk_col = qn(self.fk_column)
 
         # Compile the parent's aggregate expression with the parent table
-        # as row_ref so the child subquery becomes correlated to the outer
-        # UPDATE: WHERE invoice_id = "testapp_invoice"."id".
+        # as row_ref so the (possibly nested) child subquery is correlated
+        # to the outer UPDATE on the parent.
         expr_sql = _compile_expression(self.expression, parent_model, row_ref=parent_table)
 
         if self.operation_name == "insert":
-            affected = f"SELECT DISTINCT {fk_col} FROM new_rows WHERE {fk_col} IS NOT NULL"
+            affected = self._build_simple_walk(qn, "new_rows")
         elif self.operation_name == "delete":
-            affected = f"SELECT DISTINCT {fk_col} FROM old_rows WHERE {fk_col} IS NOT NULL"
+            affected = self._build_simple_walk(qn, "old_rows")
         else:  # update
             child_pk_col = qn(_col(model._meta.pk))  # noqa: SLF001
-            affected = self._build_update_affected_sql(qn, fk_col, child_pk_col)
+            affected = self._build_update_affected_sql(qn, child_pk_col)
 
         return self.format_sql(f"""
             UPDATE {parent_table}
@@ -837,39 +847,48 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
             RETURN NULL;
         """)
 
+    def _build_simple_walk(self, qn: Callable[[str], str], transition_table: str) -> str:
+        """Walk from a transition table's leaf-FK column up to root parent PKs."""
+        leaf_fk = qn(self.leaf_fk_column)
+        seed = f"SELECT DISTINCT {leaf_fk} FROM {transition_table} WHERE {leaf_fk} IS NOT NULL"
+        return _walk_aggregate_chain_to_root(self.chain, qn, seed)
+
     def _build_update_affected_sql(
         self,
         qn: Callable[[str], str],
-        fk_col: str,
         child_pk_col: str,
     ) -> str:
-        """SELECT of parent IDs whose aggregate is dirty after this UPDATE.
+        """Affected root parent PKs for an UPDATE on the leaf table.
 
-        Two contributions:
+        - **New side**: rows where any watched column changed contribute
+          their post-update leaf FK, walked up the chain. Catches same-
+          parent edits and the destination of an FK pivot.
+        - **Old side**: rows where the leaf FK pivoted contribute their
+          pre-update leaf FK, walked up the chain. Catches the source
+          parent of a pivot.
 
-        - **New parent**: any row whose FK or any aggregated column changed
-          contributes its post-update FK. This recomputes both same-parent
-          edits (amount changed) and the destination of an FK pivot.
-        - **Old parent**: only rows that pivoted FK contribute their pre-
-          update FK, so the source parent of a pivot also gets recomputed.
-
-        Rows whose UPDATE touches neither the FK nor any aggregated column
-        contribute nothing, so the parent UPDATE skips entirely.
+        Rows that touch neither the leaf FK nor any aggregated column
+        contribute nothing; the parent UPDATE skips entirely.
         """
+        leaf_fk = qn(self.leaf_fk_column)
         watched = [
-            f"new_rows.{fk_col} IS DISTINCT FROM old_rows.{fk_col}",
+            f"new_rows.{leaf_fk} IS DISTINCT FROM old_rows.{leaf_fk}",
             *[f"new_rows.{qn(col)} IS DISTINCT FROM old_rows.{qn(col)}" for col in self.aggregated_columns],
         ]
         any_watched_changed = " OR ".join(watched)
-        fk_pivoted = f"new_rows.{fk_col} IS DISTINCT FROM old_rows.{fk_col}"
+        fk_pivoted = f"new_rows.{leaf_fk} IS DISTINCT FROM old_rows.{leaf_fk}"
         join = f"new_rows JOIN old_rows ON new_rows.{child_pk_col} = old_rows.{child_pk_col}"
-        return (
-            f"SELECT DISTINCT new_rows.{fk_col} FROM {join} "
-            f"WHERE new_rows.{fk_col} IS NOT NULL AND ({any_watched_changed}) "
-            f"UNION "
-            f"SELECT DISTINCT old_rows.{fk_col} FROM {join} "
-            f"WHERE old_rows.{fk_col} IS NOT NULL AND ({fk_pivoted})"
+
+        new_seed = (
+            f"SELECT DISTINCT new_rows.{leaf_fk} FROM {join} "
+            f"WHERE new_rows.{leaf_fk} IS NOT NULL AND ({any_watched_changed})"
         )
+        old_seed = (
+            f"SELECT DISTINCT old_rows.{leaf_fk} FROM {join} WHERE old_rows.{leaf_fk} IS NOT NULL AND ({fk_pivoted})"
+        )
+        new_side = _walk_aggregate_chain_to_root(self.chain, qn, new_seed)
+        old_side = _walk_aggregate_chain_to_root(self.chain, qn, old_seed)
+        return f"{new_side} UNION {old_side}"
 
 
 class GeneratedFieldTrigger(pgtrigger.Trigger):
@@ -1034,47 +1053,39 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
                         ),
                     )
 
-        # Aggregate reverse triggers: one per (child_model, operation).
-        # Multiple aggregates over the same reverse relation share triggers,
-        # but the UPDATE branch needs to gate on every aggregated column
-        # contributed by any of those aggregates — so we group first and
-        # collect the union of column names per relation.
-        by_rel: dict[str, list[str | None]] = {}
+        # Aggregate reverse triggers: one set per unique chain. Multiple
+        # aggregates over the same chain (e.g. Sum + Count over the same
+        # leaf relation) share triggers; the UPDATE gating clause covers
+        # the union of their aggregated columns.
+        by_chain: dict[tuple[_AggregateHop, ...], dict[str, Any]] = {}
         for _aggregate, source_name in aggregate_refs:
-            parts = source_name.split("__")
-            rel_name = parts[0]
-            field_name = parts[1] if len(parts) == 2 else None  # noqa: PLR2004
-            by_rel.setdefault(rel_name, []).append(field_name)
-
-        for rel_name, field_names in by_rel.items():
-            rel = model._meta.get_field(rel_name)  # noqa: SLF001
-            # ManyToOneRel.related_model is typed as the concrete child model
-            # by Django, but django-stubs widens it to Model | "self" | None;
-            # we already validated this is a reverse FK in _resolve_reverse_aggregate.
-            child_model: type[Model] = rel.related_model  # type: ignore[assignment]
-            fk_column = _col(rel.field)  # type: ignore[union-attr]
-            aggregated_columns = tuple(
-                sorted(
-                    {
-                        _col(child_model._meta.get_field(name))  # noqa: SLF001
-                        for name in field_names
-                        if name is not None
-                    },
-                ),
+            agg_chain, agg_leaf_model, agg_leaf_field = _parse_aggregate_chain(source_name, model)
+            agg_chain_key = tuple(agg_chain)
+            entry = by_chain.setdefault(
+                agg_chain_key,
+                {"leaf_model": agg_leaf_model, "leaf_fields": []},
             )
+            entry["leaf_fields"].append(agg_leaf_field)
+
+        for agg_chain_key, group in by_chain.items():
+            agg_leaf_model = group["leaf_model"]
+            aggregated_columns = tuple(
+                sorted({lf for lf in group["leaf_fields"] if lf is not None}),
+            )
+            rel_path = "__".join(hop.rel_name for hop in agg_chain_key)
 
             for op_name in ("insert", "update", "delete"):
                 result.append(  # noqa: PERF401
                     (
-                        child_model,
+                        agg_leaf_model,
                         _GeneratedFieldAggregateReverse(
                             parent_model_label=child_label,
                             parent_field=self.field,
                             expression=self.expression,
-                            fk_column=fk_column,
+                            chain=agg_chain_key,
                             operation_name=op_name,
                             aggregated_columns=aggregated_columns,
-                            name=f"{self.name}_agg_{op_name}_{rel_name}",
+                            name=f"{self.name}_agg_{op_name}_{rel_path}",
                         ),
                     ),
                 )

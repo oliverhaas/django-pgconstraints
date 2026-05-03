@@ -179,6 +179,31 @@ def _parse_aggregate_chain(
     return chain, current_model, None
 
 
+def _walk_aggregate_chain_to_root(
+    chain: tuple[_AggregateHop, ...],
+    qn: Callable[[str], str],
+    seed_sql: str,
+) -> str:
+    """Walk leaf-level FK values up through *chain* to the root parent's PK domain.
+
+    *seed_sql* is a SELECT that returns leaf-level FK values (i.e. the
+    column ``chain[-1].fk_column``, which names the next-level-up
+    table's PKs). For each intermediate hop, wrap in a
+    ``SELECT fk FROM <table> WHERE pk IN (...)``.
+
+    For a single-hop chain the leaf hop's FK values *are* root-parent
+    PKs, so the seed is returned unchanged.
+    """
+    inner = seed_sql
+    for hop in reversed(chain[:-1]):
+        inner = (
+            f"SELECT DISTINCT {qn(hop.fk_column)} FROM {qn(hop.table)} "
+            f"WHERE {qn(hop.fk_column)} IS NOT NULL "
+            f"AND {qn(hop.pk)} IN ({inner})"
+        )
+    return inner
+
+
 def _resolve_reverse_aggregate(
     aggregate: Any,  # noqa: ANN401
     parent_model: type[Model],

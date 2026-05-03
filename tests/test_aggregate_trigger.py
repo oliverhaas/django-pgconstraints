@@ -423,6 +423,77 @@ def test_multi_hop_forward_trigger_recomputes_on_parent_update():
 
 
 @pytest.mark.django_db
+def test_multi_hop_leaf_amount_update_propagates():
+    customer = Customer.objects.create(name="alice")
+    cart = Cart.objects.create(customer=customer)
+    item = CartItem.objects.create(cart=cart, amount=10)
+    customer.refresh_from_db()
+    assert customer.lifetime_total == 10
+
+    item.amount = 30
+    item.save()
+
+    customer.refresh_from_db()
+    assert customer.lifetime_total == 30
+
+
+@pytest.mark.django_db
+def test_multi_hop_leaf_delete_propagates():
+    customer = Customer.objects.create(name="alice")
+    cart = Cart.objects.create(customer=customer)
+    a = CartItem.objects.create(cart=cart, amount=10)
+    CartItem.objects.create(cart=cart, amount=15)
+    customer.refresh_from_db()
+    assert customer.lifetime_total == 25
+
+    a.delete()
+
+    customer.refresh_from_db()
+    assert customer.lifetime_total == 15
+
+
+@pytest.mark.django_db
+def test_multi_hop_leaf_pivot_across_customers():
+    """A CartItem moving from a cart of customer A to a cart of customer B:
+    both customers' totals must update through the chain."""
+    a = Customer.objects.create(name="alice")
+    b = Customer.objects.create(name="bob")
+    cart_a = Cart.objects.create(customer=a)
+    cart_b = Cart.objects.create(customer=b)
+    item = CartItem.objects.create(cart=cart_a, amount=42)
+    CartItem.objects.create(cart=cart_b, amount=8)
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.lifetime_total == 42
+    assert b.lifetime_total == 8
+
+    item.cart = cart_b
+    item.save()
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.lifetime_total == 0
+    assert b.lifetime_total == 50
+
+
+@pytest.mark.django_db
+def test_multi_hop_isolated_customers():
+    a = Customer.objects.create(name="alice")
+    b = Customer.objects.create(name="bob")
+    cart_a = Cart.objects.create(customer=a)
+    cart_b = Cart.objects.create(customer=b)
+    CartItem.objects.create(cart=cart_a, amount=3)
+    CartItem.objects.create(cart=cart_b, amount=100)
+    CartItem.objects.create(cart=cart_a, amount=4)
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.lifetime_total == 7
+    assert b.lifetime_total == 100
+
+
+@pytest.mark.django_db
 def test_aggregate_cycle_detected():
     """Invoice.total = Sum(lines.amount) and InvoiceLine.amount = F(invoice.total)
     would loop forever; the cycle detector must reject it."""
