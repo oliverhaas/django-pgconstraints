@@ -971,7 +971,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
             RETURN NEW;
         """)
 
-    def get_reverse_triggers(self, model: type[Model]) -> list[tuple[type[Model], pgtrigger.Trigger]]:
+    def get_reverse_triggers(self, model: type[Model]) -> list[tuple[type[Model], pgtrigger.Trigger]]:  # noqa: C901
         """Return (related_model, trigger) pairs for reverse triggers.
 
         For each FK chain in the expression, creates reverse triggers on:
@@ -1074,6 +1074,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
             )
             rel_path = "__".join(hop.rel_name for hop in agg_chain_key)
 
+            # Leaf-table triggers (INSERT, UPDATE with full gating, DELETE).
             for op_name in ("insert", "update", "delete"):
                 result.append(  # noqa: PERF401
                     (
@@ -1089,6 +1090,34 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
                         ),
                     ),
                 )
+
+            # Intermediate-table triggers: every non-leaf hop needs UPDATE
+            # (FK pivot to a different ancestor) and DELETE (its descendants
+            # cascade out from under us; the leaf-table DELETE trigger can't
+            # walk back through a row that was just removed). INSERT is
+            # skipped: a freshly-inserted intermediate has no descendants,
+            # so it can't change the aggregate yet.
+            for i in range(len(agg_chain_key) - 1):
+                sub_chain = agg_chain_key[: i + 1]
+                intermediate_model = agg_chain_key[i].related_model
+                sub_rel_path = "__".join(hop.rel_name for hop in sub_chain)
+                for op_name in ("update", "delete"):
+                    result.append(  # noqa: PERF401
+                        (
+                            intermediate_model,
+                            _GeneratedFieldAggregateReverse(
+                                parent_model_label=child_label,
+                                parent_field=self.field,
+                                expression=self.expression,
+                                chain=sub_chain,
+                                operation_name=op_name,
+                                # Aggregated columns live on the *leaf*; an
+                                # intermediate row never carries them.
+                                aggregated_columns=(),
+                                name=f"{self.name}_agg_{op_name}_{sub_rel_path}",
+                            ),
+                        ),
+                    )
 
         return result
 

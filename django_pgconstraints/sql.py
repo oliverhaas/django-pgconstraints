@@ -5,14 +5,14 @@ from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import FieldDoesNotExist
 from django.db import connection
-from django.db.models import F, Q
+from django.db.models import F, Model, Q
 from django.db.models.expressions import RawSQL
 from django.db.models.sql import Query
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from django.db.models import Field, Model
+    from django.db.models import Field
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,7 @@ class _AggregateHop:
     fk_column: str  # FK column on this hop's table pointing to parent (e.g. "customer_id")
     table: str  # this hop's child table name (e.g. "testapp_cart")
     pk: str  # this hop's PK column (almost always "id")
+    related_model: type[Model]  # the Django model class for this hop's table
 
 
 def _col(field: Any) -> str:  # noqa: ANN401
@@ -155,6 +156,7 @@ def _parse_aggregate_chain(
                     fk_column=_col(fk_field),
                     table=related_model._meta.db_table,  # noqa: SLF001
                     pk=_col(related_model._meta.pk),  # noqa: SLF001
+                    related_model=related_model,
                 ),
             )
             current_model = related_model

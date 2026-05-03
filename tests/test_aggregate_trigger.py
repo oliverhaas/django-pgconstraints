@@ -494,6 +494,69 @@ def test_multi_hop_isolated_customers():
 
 
 @pytest.mark.django_db
+def test_multi_hop_intermediate_pivot_between_customers():
+    """Cart pivots between customers (Cart.customer_id changes).
+
+    The leaf-table trigger never fires (no CartItem write happens), but
+    the intermediate-table UPDATE trigger on Cart fires and recomputes
+    both old and new customer totals.
+    """
+    a = Customer.objects.create(name="alice")
+    b = Customer.objects.create(name="bob")
+    cart = Cart.objects.create(customer=a)
+    CartItem.objects.create(cart=cart, amount=42)
+    CartItem.objects.create(cart=cart, amount=8)
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.lifetime_total == 50
+    assert b.lifetime_total == 0
+
+    cart.customer = b
+    cart.save()
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.lifetime_total == 0
+    assert b.lifetime_total == 50
+
+
+@pytest.mark.django_db
+def test_multi_hop_intermediate_delete_propagates():
+    """Deleting a Cart cascades to its CartItems. The intermediate-level
+    DELETE trigger on Cart recomputes the customer total — the leaf
+    DELETE trigger alone can't, because by the time it fires, the Cart
+    row it would walk back through is already gone.
+    """
+    customer = Customer.objects.create(name="alice")
+    cart = Cart.objects.create(customer=customer)
+    CartItem.objects.create(cart=cart, amount=10)
+    CartItem.objects.create(cart=cart, amount=15)
+    customer.refresh_from_db()
+    assert customer.lifetime_total == 25
+
+    cart.delete()
+
+    customer.refresh_from_db()
+    assert customer.lifetime_total == 0
+
+
+@pytest.mark.django_db
+def test_multi_hop_cascade_delete_of_root_does_not_error():
+    """Deleting the root cascades through both intermediate and leaf.
+    Triggers fire harmlessly: their UPDATE on a deleted root is a no-op."""
+    customer = Customer.objects.create(name="alice")
+    cart = Cart.objects.create(customer=customer)
+    CartItem.objects.create(cart=cart, amount=10)
+
+    customer.delete()
+
+    assert not Customer.objects.exists()
+    assert not Cart.objects.exists()
+    assert not CartItem.objects.exists()
+
+
+@pytest.mark.django_db
 def test_aggregate_cycle_detected():
     """Invoice.total = Sum(lines.amount) and InvoiceLine.amount = F(invoice.total)
     would loop forever; the cycle detector must reject it."""
