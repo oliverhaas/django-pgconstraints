@@ -33,10 +33,9 @@ class Chapter(models.Model):
         ]
 ```
 
-The key bit is `"series__publisher"` — two underscore-separated hops
-from `Chapter` to `Publisher`. The trigger resolves it to a nested SQL
-subquery under the hood, so the uniqueness check does not materialise the
-join in Python.
+`"series__publisher"` is two underscore-separated hops from `Chapter` to
+`Publisher`. The trigger resolves it to a nested SQL subquery, so the
+uniqueness check does not materialise the join in Python.
 
 ## Migrate
 

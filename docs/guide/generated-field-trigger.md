@@ -31,7 +31,7 @@ GeneratedFieldTrigger(
 | External writes | Rejected by PostgreSQL | Silently overwritten on next write |
 
 The target column is a regular field, which means you define it like any
-other field — pick a type and a default that is valid until the trigger
+other field. Pick a type and a default that is valid until the trigger
 runs.
 
 ## Simple expression (same table)
@@ -87,17 +87,17 @@ On every `INSERT` or `UPDATE` of a `Part` the forward trigger recomputes
 In addition, the package installs a **reverse trigger** on `Supplier`:
 whenever `Supplier.markup_pct` changes, every related `Part` row has its
 `markup_amount` recomputed in the same transaction. Reverse triggers are
-registered from `AppConfig.ready()` and follow arbitrary-depth FK chains
-— if the expression is `F("part__supplier__markup_pct")`, reverse
-triggers are installed on both `Part` (for changes to `Part.supplier_id`)
-and `Supplier` (for changes to `markup_pct`).
+registered from `AppConfig.ready()` and follow arbitrary-depth FK chains.
+If the expression is `F("part__supplier__markup_pct")`, reverse triggers
+are installed on both `Part` (for changes to `Part.supplier_id`) and
+`Supplier` (for changes to `markup_pct`).
 
 ## Read-only by convention
 
-The target column is a regular column; PostgreSQL will happily let you
-write to it. Any manual write — ORM or raw SQL — is silently overwritten
-the next time the row is written again, because the trigger reruns and
-replaces the column value. Treat the field as read-only.
+The target column is a regular column; PostgreSQL will let you write to
+it. Any manual write (ORM or raw SQL) is silently overwritten the next
+time the row is written again, because the trigger reruns and replaces
+the column value. Treat the field as read-only.
 
 ## Instance refresh
 
@@ -108,7 +108,7 @@ per object:
 ```python
 item = LineItem(price=10, quantity=3)
 item.save()
-item.total  # Decimal('30.00') — arrived via RETURNING, no extra SELECT
+item.total  # Decimal('30.00'), arrived via RETURNING, no extra SELECT
 ```
 
 | API                                | Refreshed automatically? | Mechanism |
@@ -121,16 +121,16 @@ item.total  # Decimal('30.00') — arrived via RETURNING, no extra SELECT
 | `QuerySet.update(**kwargs)`        | **No** (no instance)     | Call `refresh_from_db()` or re-query as needed |
 
 Pass `auto_refresh=False` to skip the RETURNING wiring for a specific
-trigger — useful if you never read the computed field from the Python
-instance after writing, or if a third-party layer interferes with the
-extended `returning_fields`. With the opt-out you stay on the
+trigger. This is useful if you never read the computed field from the
+Python instance after writing, or if a third-party layer interferes with
+the extended `returning_fields`. With the opt-out you stay on the
 pre-auto-refresh behavior: the DB has the correct value, the in-memory
 instance does not, and you call `refresh_from_db()` yourself.
 
 ### `bulk_update` limitation
 
 `bulk_update` emits a `CASE WHEN … END` UPDATE that returns only a row
-count — the passed-in Python objects keep whatever values they held
+count, so the passed-in Python objects keep whatever values they held
 before the call. This is a Django-wide limitation, not specific to
 `GeneratedFieldTrigger`: Django's own `GeneratedField` has the same
 staleness after `bulk_update`.
@@ -139,19 +139,18 @@ Django tracks this as [ticket #32406][t32406] (generalizing RETURNING to
 `update()` / `bulk_update()`) with an active but unmerged draft
 [PR #19298][pr19298]. The core-team blocker is API shape, not technical
 doubt. The single-instance `save()` path was fixed earlier via
-[ticket #27222][t27222], which is the same machinery this package
-piggybacks on.
+[ticket #27222][t27222], the same machinery this package piggybacks on.
 
 Until `bulk_update` learns to return rows, the options are:
 
-1. **Re-query**: after `bulk_update`, hit the database once more —
+1. **Re-query**: after `bulk_update`, hit the database once more.
    ```python
    Model.objects.bulk_update(objs, ["price"])
    fresh = {o.pk: o for o in Model.objects.filter(pk__in=[o.pk for o in objs])}
    ```
 2. **Use `bulk_create(update_conflicts=True)` as an upsert.** [Ticket
    #34698][t34698] (fixed in Django 5.0) made this path populate
-   `RETURNING` fields — including trigger-backed values — onto the
+   `RETURNING` fields, including trigger-backed values, onto the
    passed-in instances, on PostgreSQL / MariaDB 10.5+ / SQLite 3.35+.
    For workloads that already have full rows in Python, this is a
    zero-extra-query alternative to `bulk_update`:
@@ -164,7 +163,7 @@ Until `bulk_update` learns to return rows, the options are:
    )
    # objs now carry the trigger-computed values.
    ```
-   Caveats to be aware of before reaching for this as a drop-in:
+   Caveats:
    - **Full-instance payload.** `bulk_create` sends every column on
      every object, not just `update_fields`. `bulk_update` sends only
      the fields you list. If your objects were rehydrated from the DB
@@ -179,8 +178,8 @@ Until `bulk_update` learns to return rows, the options are:
      Then `BEFORE UPDATE` fires for the DO UPDATE branch. Plain
      `bulk_update` only fires `BEFORE UPDATE`. `GeneratedFieldTrigger`
      itself is unaffected (it fires on both and recomputes the same
-     value), but other `BEFORE INSERT` triggers with side effects —
-     auditing, ID minting, logging — will run on what is really an
+     value), but other `BEFORE INSERT` triggers with side effects
+     (auditing, ID minting, logging) will run on what is really an
      update.
    - **Performance.** For large batches of pure updates with few
      columns, the `CASE WHEN` path `bulk_update` uses is meaningfully
@@ -271,6 +270,6 @@ appends the computed fields on top.
 
 ## Validation
 
-`GeneratedFieldTrigger` does not participate in `full_clean()` — it is
+`GeneratedFieldTrigger` does not participate in `full_clean()`. It is
 computing a value rather than enforcing a constraint. Whatever the trigger
 produces is what ends up in the column.

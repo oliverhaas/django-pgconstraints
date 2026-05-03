@@ -8,11 +8,11 @@ Declarative PostgreSQL constraint triggers for Django, with foreign-key
 traversal that the built-in constraints can't express.
 
 `UniqueConstraint`, `CheckConstraint`, and `GeneratedField` in Django 6.0
-compile down to plain PostgreSQL constraints — so they can only reference
+compile down to plain PostgreSQL constraints, so they can only reference
 columns on the same table. `django-pgconstraints` provides three trigger-based
 classes that accept `F("related__field")` expressions and compile to PL/pgSQL
 triggers via [django-pgtrigger](https://github.com/Opus10/django-pgtrigger).
-Their API mirrors the Django equivalents to keep the mental model familiar.
+Their API mirrors the Django equivalents.
 
 ```python
 from django.db.models import F, Q

@@ -15,8 +15,8 @@ line = OrderLine(product=product, quantity=9999)
 line.full_clean()  # ValidationError — CheckConstraintTrigger caught it
 ```
 
-No extra wiring is required — the triggers are discovered through the
-normal constraint-validation path.
+The triggers are discovered through the normal constraint-validation
+path.
 
 ## `UniqueConstraintTrigger`
 
@@ -35,7 +35,7 @@ normal constraint-validation path.
   instance's field values, the same way Django's `CheckConstraint` does
   it.
 - Conditions that reference related columns via `F("rel__field")` skip
-  the Python path — the ORM would have to issue a query for every hop,
+  the Python path. The ORM would have to issue a query for every hop,
   and the trigger will catch the violation at `save()` time anyway.
 
 ## Custom error codes and messages
@@ -53,7 +53,7 @@ CheckConstraintTrigger(
 )
 ```
 
-The database-level `IntegrityError` is unaffected — it still comes back
+The database-level `IntegrityError` is unaffected. It still comes back
 with the PostgreSQL SQLSTATE (`23505` for unique, `23514` for check).
 
 ## `GeneratedFieldTrigger`

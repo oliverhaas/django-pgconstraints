@@ -4,7 +4,7 @@ Declarative PostgreSQL constraint triggers for Django, with foreign-key
 traversal that the built-in constraints can't express.
 
 Django 6.0 ships `UniqueConstraint`, `CheckConstraint`, and `GeneratedField`,
-and they compile down to plain PostgreSQL constraints — so they can only
+and they compile down to plain PostgreSQL constraints, so they can only
 reference columns on the same table. That rules out a handful of common
 patterns:
 
@@ -15,7 +15,7 @@ patterns:
 This package provides three trigger-based classes that accept
 `F("related__field")` expressions and compile to PL/pgSQL triggers via
 [django-pgtrigger](https://github.com/Opus10/django-pgtrigger). Their
-APIs mirror the Django equivalents so the mental model carries over:
+APIs mirror the Django equivalents:
 
 - [`UniqueConstraintTrigger`](guide/unique-constraint-trigger.md) — a
   unique constraint with FK chains, Django expressions, partial
@@ -48,8 +48,8 @@ class OrderLine(models.Model):
         ]
 ```
 
-Nothing else is needed. On every `INSERT` or `UPDATE` the trigger runs,
-resolves `F("product__stock")` via a subquery, and raises `IntegrityError`
+On every `INSERT` or `UPDATE` the trigger runs, resolves
+`F("product__stock")` via a subquery, and raises `IntegrityError`
 (error code `23514`) if the condition is violated. The same rule is also
 enforced at Python level through `full_clean()`.
 

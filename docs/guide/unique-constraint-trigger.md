@@ -1,8 +1,8 @@
 # UniqueConstraintTrigger
 
 A trigger-based unique constraint. The API mirrors Django's
-`UniqueConstraint` — same parameter names, same semantics where they
-overlap — but `fields=` additionally accepts foreign-key chains
+`UniqueConstraint` with the same parameter names and semantics where they
+overlap, except `fields=` additionally accepts foreign-key chains
 (`"book__author"`).
 
 ```python
@@ -75,7 +75,7 @@ UniqueConstraintTrigger(
 ```
 
 `fields` and expressions cannot be combined on the same trigger. Triggers
-built from expressions also cannot be deferred — PostgreSQL can't defer a
+built from expressions also cannot be deferred. PostgreSQL can't defer a
 purely functional check the same way it defers a real constraint.
 
 ## Partial uniqueness

@@ -2,7 +2,7 @@
 
 A trigger-based check constraint whose `Q` can reference columns on
 related models via `F("rel__field")`. The API mirrors Django's
-`CheckConstraint` so the parameters feel familiar.
+`CheckConstraint`.
 
 ```python
 from django_pgconstraints import CheckConstraintTrigger
@@ -42,8 +42,7 @@ class Product(models.Model):
 
 ## Foreign-key traversal
 
-Where `CheckConstraintTrigger` earns its keep — the right-hand side of a
-lookup can live on a related model:
+The right-hand side of a lookup can live on a related model:
 
 ```python
 class OrderLine(models.Model):
@@ -64,7 +63,7 @@ arbitrary-depth chains (`F("order__customer__tier")`) work the same way.
 
 ## Multiple checks on the same model
 
-Each check is its own trigger — list as many as you need:
+Each check is its own trigger. List as many as you need:
 
 ```python
 class OrderLine(models.Model):
@@ -88,7 +87,7 @@ class OrderLine(models.Model):
 - For a condition whose `F()` refs are all same-table, it falls through
   to `Q.check()` and raises `ValidationError` on the instance.
 - For conditions that traverse foreign keys, Python-level evaluation is
-  skipped — the trigger is the sole authority and the check happens at
+  skipped. The trigger is the sole authority and the check happens at
   `save()` time.
 
 Both paths honour `violation_error_code` and `violation_error_message`.
