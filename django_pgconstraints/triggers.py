@@ -776,7 +776,7 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
         "delete": pgtrigger.Delete,
     }
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         parent_model_label: str,
@@ -784,6 +784,7 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
         expression: BaseExpression,
         fk_column: str,
         operation_name: str,
+        aggregated_columns: tuple[str, ...] = (),
         **kwargs: Any,  # noqa: ANN401
     ) -> None:
         if operation_name not in self._OPERATION_MAP:
@@ -794,6 +795,7 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
         self.expression = expression
         self.fk_column = fk_column
         self.operation_name = operation_name
+        self.aggregated_columns = aggregated_columns
 
         kwargs.setdefault("operation", self._OPERATION_MAP[operation_name])
         if operation_name == "insert":
@@ -804,7 +806,7 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
             kwargs.setdefault("referencing", pgtrigger.Referencing(old="old_rows", new="new_rows"))
         super().__init__(**kwargs)
 
-    def get_func(self, model: Model) -> str:  # noqa: ARG002
+    def get_func(self, model: Model) -> str:
         from django.apps import apps  # noqa: PLC0415
 
         qn = pgtrigger.utils.quote
@@ -825,11 +827,8 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
         elif self.operation_name == "delete":
             affected = f"SELECT DISTINCT {fk_col} FROM old_rows WHERE {fk_col} IS NOT NULL"
         else:  # update
-            affected = (
-                f"SELECT DISTINCT {fk_col} FROM new_rows WHERE {fk_col} IS NOT NULL "
-                f"UNION "
-                f"SELECT DISTINCT {fk_col} FROM old_rows WHERE {fk_col} IS NOT NULL"
-            )
+            child_pk_col = qn(_col(model._meta.pk))  # noqa: SLF001
+            affected = self._build_update_affected_sql(qn, fk_col, child_pk_col)
 
         return self.format_sql(f"""
             UPDATE {parent_table}
@@ -837,6 +836,40 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
             WHERE {parent_pk_col} IN ({affected});
             RETURN NULL;
         """)
+
+    def _build_update_affected_sql(
+        self,
+        qn: Callable[[str], str],
+        fk_col: str,
+        child_pk_col: str,
+    ) -> str:
+        """SELECT of parent IDs whose aggregate is dirty after this UPDATE.
+
+        Two contributions:
+
+        - **New parent**: any row whose FK or any aggregated column changed
+          contributes its post-update FK. This recomputes both same-parent
+          edits (amount changed) and the destination of an FK pivot.
+        - **Old parent**: only rows that pivoted FK contribute their pre-
+          update FK, so the source parent of a pivot also gets recomputed.
+
+        Rows whose UPDATE touches neither the FK nor any aggregated column
+        contribute nothing, so the parent UPDATE skips entirely.
+        """
+        watched = [
+            f"new_rows.{fk_col} IS DISTINCT FROM old_rows.{fk_col}",
+            *[f"new_rows.{qn(col)} IS DISTINCT FROM old_rows.{qn(col)}" for col in self.aggregated_columns],
+        ]
+        any_watched_changed = " OR ".join(watched)
+        fk_pivoted = f"new_rows.{fk_col} IS DISTINCT FROM old_rows.{fk_col}"
+        join = f"new_rows JOIN old_rows ON new_rows.{child_pk_col} = old_rows.{child_pk_col}"
+        return (
+            f"SELECT DISTINCT new_rows.{fk_col} FROM {join} "
+            f"WHERE new_rows.{fk_col} IS NOT NULL AND ({any_watched_changed}) "
+            f"UNION "
+            f"SELECT DISTINCT old_rows.{fk_col} FROM {join} "
+            f"WHERE old_rows.{fk_col} IS NOT NULL AND ({fk_pivoted})"
+        )
 
 
 class GeneratedFieldTrigger(pgtrigger.Trigger):
@@ -1002,30 +1035,36 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
                     )
 
         # Aggregate reverse triggers: one per (child_model, operation).
-        # Multiple aggregates over the same reverse relation share triggers
-        # since the recompute SQL is the same regardless of which aggregate
-        # the child write affects.
-        seen_agg: set[tuple[str, str]] = set()
+        # Multiple aggregates over the same reverse relation share triggers,
+        # but the UPDATE branch needs to gate on every aggregated column
+        # contributed by any of those aggregates — so we group first and
+        # collect the union of column names per relation.
+        by_rel: dict[str, list[str | None]] = {}
         for _aggregate, source_name in aggregate_refs:
-            rel_name = source_name.split("__")[0]
+            parts = source_name.split("__")
+            rel_name = parts[0]
+            field_name = parts[1] if len(parts) == 2 else None  # noqa: PLR2004
+            by_rel.setdefault(rel_name, []).append(field_name)
+
+        for rel_name, field_names in by_rel.items():
             rel = model._meta.get_field(rel_name)  # noqa: SLF001
             # ManyToOneRel.related_model is typed as the concrete child model
             # by Django, but django-stubs widens it to Model | "self" | None;
             # we already validated this is a reverse FK in _resolve_reverse_aggregate.
             child_model: type[Model] = rel.related_model  # type: ignore[assignment]
             fk_column = _col(rel.field)  # type: ignore[union-attr]
+            aggregated_columns = tuple(
+                sorted(
+                    {
+                        _col(child_model._meta.get_field(name))  # noqa: SLF001
+                        for name in field_names
+                        if name is not None
+                    },
+                ),
+            )
 
-            # TODO(perf): the UPDATE trigger currently fires unconditionally,  # noqa: FIX002, TD003
-            # so child UPDATEs that touch neither the aggregated column nor
-            # the FK still pay the recompute cost. Add IS DISTINCT FROM
-            # gating across the watched columns once the gating-on-multiple-
-            # aggregates story is settled.
             for op_name in ("insert", "update", "delete"):
-                key = (child_model._meta.label, op_name)  # noqa: SLF001
-                if key in seen_agg:
-                    continue
-                seen_agg.add(key)
-                result.append(
+                result.append(  # noqa: PERF401
                     (
                         child_model,
                         _GeneratedFieldAggregateReverse(
@@ -1034,6 +1073,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
                             expression=self.expression,
                             fk_column=fk_column,
                             operation_name=op_name,
+                            aggregated_columns=aggregated_columns,
                             name=f"{self.name}_agg_{op_name}_{rel_name}",
                         ),
                     ),

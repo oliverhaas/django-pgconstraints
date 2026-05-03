@@ -189,6 +189,9 @@ class Invoice(models.Model):
 class InvoiceLine(models.Model):
     invoice = models.ForeignKey(Invoice, related_name="lines", on_delete=models.CASCADE)
     amount = models.IntegerField()
+    # Non-aggregated column used in tests to verify that UPDATEs touching
+    # only this column don't fire the parent recompute.
+    note = models.CharField(max_length=100, default="")
 
 
 # --- UniqueConstraintTrigger: index=True backing models (issue #10) ---

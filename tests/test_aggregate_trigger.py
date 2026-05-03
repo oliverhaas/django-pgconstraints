@@ -252,6 +252,61 @@ def test_forward_relation_in_aggregate_rejected():
 
 
 # ---------------------------------------------------------------------------
+# UPDATE gating — irrelevant child UPDATEs must not recompute the parent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_update_gating_skips_recompute_when_only_irrelevant_column_changed():
+    """Updating a non-aggregated column on a child must not re-fire the
+    parent's aggregate recompute.
+
+    We prove this by sabotaging the parent under disabled triggers, then
+    issuing an UPDATE on the child that only touches a non-watched column.
+    If gating works, the sabotage value survives because the trigger
+    short-circuits at the IS DISTINCT FROM filter.
+    """
+    from django.db import connection  # noqa: PLC0415
+
+    invoice = Invoice.objects.create()
+    line = InvoiceLine.objects.create(invoice=invoice, amount=10, note="initial")
+    invoice.refresh_from_db()
+    assert invoice.total == 10
+
+    with connection.cursor() as cur:
+        cur.execute("ALTER TABLE testapp_invoice DISABLE TRIGGER ALL")
+        cur.execute("UPDATE testapp_invoice SET total = 999")
+        cur.execute("ALTER TABLE testapp_invoice ENABLE TRIGGER ALL")
+
+    line.note = "edited"
+    line.save()
+
+    invoice.refresh_from_db()
+    assert invoice.total == 999, "gating should have prevented the parent recompute"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_update_gating_fires_recompute_when_aggregated_column_changes():
+    """Counterpart: a real change to the aggregated column re-fires the
+    recompute, overwriting the sabotaged value."""
+    from django.db import connection  # noqa: PLC0415
+
+    invoice = Invoice.objects.create()
+    line = InvoiceLine.objects.create(invoice=invoice, amount=10, note="initial")
+
+    with connection.cursor() as cur:
+        cur.execute("ALTER TABLE testapp_invoice DISABLE TRIGGER ALL")
+        cur.execute("UPDATE testapp_invoice SET total = 999")
+        cur.execute("ALTER TABLE testapp_invoice ENABLE TRIGGER ALL")
+
+    line.amount = 50
+    line.save()
+
+    invoice.refresh_from_db()
+    assert invoice.total == 50, "amount change should have fired recompute"
+
+
+# ---------------------------------------------------------------------------
 # refresh_dependent — reconcile aggregate parents after a trigger bypass
 # ---------------------------------------------------------------------------
 
