@@ -203,6 +203,15 @@ class Customer(models.Model):
     name = models.CharField(max_length=100)
     lifetime_total = models.IntegerField(default=0)
 
+    class Meta:
+        triggers = [
+            GeneratedFieldTrigger(
+                field="lifetime_total",
+                expression=Sum("carts__items__amount"),
+                name="customer_lifetime_total",
+            ),
+        ]
+
 
 class Cart(models.Model):
     customer = models.ForeignKey(Customer, related_name="carts", on_delete=models.CASCADE)

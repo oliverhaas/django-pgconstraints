@@ -224,10 +224,28 @@ def test_distinct_aggregate_rejected_at_compile_time():
 
 
 @pytest.mark.unit
-def test_multi_hop_aggregate_rejected_at_compile_time():
-    with pytest.raises(NotImplementedError, match="Multi-hop"):
+def test_multi_hop_reverse_aggregate_compiles_to_nested_select():
+    """Every hop reverse-FK: build nested SELECTs through intermediates."""
+    sql = _resolve_reverse_aggregate(Sum("carts__items__amount"), Customer, _q, row_ref="NEW")
+    assert sql == (
+        'COALESCE((SELECT SUM("amount") FROM "testapp_cartitem" '
+        'WHERE "cart_id" IN ('
+        'SELECT "id" FROM "testapp_cart" WHERE "customer_id" = NEW."id"'
+        ")), 0)"
+    )
+
+
+@pytest.mark.unit
+def test_mixed_forward_reverse_aggregate_rejected():
+    """Mixed reverse + forward FK chains aren't supported.
+
+    On Invoice, ``lines`` is a reverse FK to InvoiceLine, but ``invoice`` on
+    InvoiceLine is a forward FK back. Walking through it would land at a
+    non-many relation, which we don't know how to denormalise yet.
+    """
+    with pytest.raises(ValueError, match="reverse one-to-many"):
         _resolve_reverse_aggregate(
-            Sum("lines__product__price"),
+            Sum("lines__invoice__total"),
             Invoice,
             _q,
             row_ref="NEW",
@@ -236,7 +254,7 @@ def test_multi_hop_aggregate_rejected_at_compile_time():
 
 @pytest.mark.unit
 def test_forward_relation_in_aggregate_rejected():
-    """Aggregates over a forward FK aren't meaningful here."""
+    """Aggregates rooted at a forward FK aren't meaningful here either."""
     with pytest.raises(ValueError, match="reverse one-to-many"):
         _resolve_reverse_aggregate(
             Sum("invoice__total"),  # invoice is a forward FK on InvoiceLine
@@ -385,6 +403,21 @@ def test_multi_hop_customer_total_aggregates_through_carts():
     CartItem.objects.create(cart=cart, amount=10)
     CartItem.objects.create(cart=cart, amount=15)
 
+    customer.refresh_from_db()
+    assert customer.lifetime_total == 25
+
+
+@pytest.mark.django_db
+def test_multi_hop_forward_trigger_recomputes_on_parent_update():
+    """The parent's BEFORE UPDATE trigger must compile and execute the
+    nested SELECT correctly even before the leaf-table reverse triggers
+    are wired up."""
+    customer = Customer.objects.create(name="bob")
+    cart = Cart.objects.create(customer=customer)
+    CartItem.objects.create(cart=cart, amount=10)
+    CartItem.objects.create(cart=cart, amount=15)
+
+    customer.save()  # BEFORE UPDATE evaluates the multi-hop aggregate
     customer.refresh_from_db()
     assert customer.lifetime_total == 25
 
