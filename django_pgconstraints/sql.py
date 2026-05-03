@@ -73,6 +73,45 @@ def _concrete_col_sql(
 # Mirrors Django's own coalescing in `Aggregate(default=...)` for typical cases.
 _ZERO_DEFAULT_AGGREGATES = frozenset({"SUM", "COUNT"})
 
+# Single-hop aggregate references look like ``rel`` or ``rel__field``;
+# anything deeper is unsupported until the multi-hop machinery exists.
+_MAX_AGGREGATE_PARTS = 2
+
+
+def _validate_aggregate_for_compilation(aggregate: Any) -> tuple[str, str | None]:  # noqa: ANN401
+    """Reject unsupported aggregate shapes early; return (rel_name, field_name) on success."""
+    if getattr(aggregate, "filter", None) is not None:
+        msg = f"{type(aggregate).__name__}(filter=...) is not supported in GeneratedFieldTrigger expressions."
+        raise NotImplementedError(msg)
+    if getattr(aggregate, "distinct", False):
+        msg = f"{type(aggregate).__name__}(distinct=True) is not supported in GeneratedFieldTrigger expressions."
+        raise NotImplementedError(msg)
+
+    # Aggregate.get_source_expressions() reserves trailing slots for filter
+    # and default. Drop the Nones; we already rejected non-None filter above.
+    sources = [s for s in aggregate.get_source_expressions() if s is not None]
+    if len(sources) != 1:
+        msg = (
+            f"{type(aggregate).__name__} with {len(sources)} source expressions "
+            f"is not supported in GeneratedFieldTrigger; pass a single F() reference."
+        )
+        raise NotImplementedError(msg)
+    source = sources[0]
+    if not isinstance(source, F):
+        msg = f"Aggregate source must be an F() reference (or a string), got {type(source).__name__}."
+        raise NotImplementedError(msg)
+
+    name: str = source.name  # type: ignore[attr-defined]
+    parts = name.split("__")
+    if len(parts) > _MAX_AGGREGATE_PARTS:
+        msg = (
+            f"Multi-hop aggregate references are not yet supported: {name!r}. "
+            f"Pass a single reverse-relation hop (rel or rel__field)."
+        )
+        raise NotImplementedError(msg)
+
+    return parts[0], parts[1] if len(parts) == _MAX_AGGREGATE_PARTS else None
+
 
 def _resolve_reverse_aggregate(
     aggregate: Any,  # noqa: ANN401
@@ -96,48 +135,7 @@ def _resolve_reverse_aggregate(
     child).  ``filter=`` and ``distinct=True`` are intentionally rejected
     until the trigger machinery handles them coherently.
     """
-    if getattr(aggregate, "filter", None) is not None:
-        msg = (
-            f"{type(aggregate).__name__}(filter=...) is not supported in "
-            f"GeneratedFieldTrigger expressions."
-        )
-        raise NotImplementedError(msg)
-    if getattr(aggregate, "distinct", False):
-        msg = (
-            f"{type(aggregate).__name__}(distinct=True) is not supported in "
-            f"GeneratedFieldTrigger expressions."
-        )
-        raise NotImplementedError(msg)
-
-    # Aggregate.get_source_expressions() reserves trailing slots for filter
-    # and default. Drop the Nones; we already rejected non-None filter/distinct
-    # above.
-    sources = [s for s in aggregate.get_source_expressions() if s is not None]
-    if len(sources) != 1:
-        msg = (
-            f"{type(aggregate).__name__} with {len(sources)} source expressions "
-            f"is not supported in GeneratedFieldTrigger; pass a single F() reference."
-        )
-        raise NotImplementedError(msg)
-    source = sources[0]
-    if not isinstance(source, F):
-        msg = (
-            f"Aggregate source must be an F() reference (or a string), "
-            f"got {type(source).__name__}."
-        )
-        raise NotImplementedError(msg)
-
-    name: str = source.name  # type: ignore[attr-defined]
-    parts = name.split("__")
-    if len(parts) > 2:
-        msg = (
-            f"Multi-hop aggregate references are not yet supported: {name!r}. "
-            f"Pass a single reverse-relation hop (rel or rel__field)."
-        )
-        raise NotImplementedError(msg)
-
-    rel_name = parts[0]
-    field_name = parts[1] if len(parts) == 2 else None
+    rel_name, field_name = _validate_aggregate_for_compilation(aggregate)
 
     try:
         rel = parent_model._meta.get_field(rel_name)  # noqa: SLF001
@@ -152,8 +150,11 @@ def _resolve_reverse_aggregate(
         )
         raise ValueError(msg)
 
-    child_model = rel.related_model
-    fk_field = rel.field  # type: ignore[union-attr] — the FK on the child pointing back
+    # ManyToOneRel narrows to a concrete model and FK; django-stubs widens
+    # both to optional / "self" sentinels because they're shared with
+    # other rel types. one_to_many gates this branch so we can assert.
+    child_model: type[Model] = rel.related_model  # type: ignore[assignment]
+    fk_field = rel.field  # type: ignore[union-attr]
     fk_col = qn(_col(fk_field))
     child_table = qn(child_model._meta.db_table)  # noqa: SLF001
     parent_pk_col = qn(_col(parent_model._meta.pk))  # noqa: SLF001

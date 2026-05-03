@@ -1,7 +1,7 @@
 """pgtrigger-based trigger classes for django-pgconstraints."""
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pgtrigger
 import pgtrigger.utils
@@ -590,7 +590,8 @@ def _find_aggregate_refs(expr: BaseExpression) -> list[tuple[Any, str]]:
     if isinstance(expr, Aggregate):
         sources = [s for s in expr.get_source_expressions() if s is not None]
         if len(sources) == 1 and isinstance(sources[0], DjangoF):
-            refs.append((expr, sources[0].name))
+            f_source: Any = sources[0]
+            refs.append((expr, f_source.name))
         return refs
     if isinstance(expr, DjangoF):
         return refs
@@ -769,7 +770,7 @@ class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
     when = pgtrigger.After
     level = pgtrigger.Statement
 
-    _OPERATION_MAP = {
+    _OPERATION_MAP: ClassVar[dict[str, Any]] = {
         "insert": pgtrigger.Insert,
         "update": pgtrigger.Update,
         "delete": pgtrigger.Delete,
@@ -1008,7 +1009,10 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
         for _aggregate, source_name in aggregate_refs:
             rel_name = source_name.split("__")[0]
             rel = model._meta.get_field(rel_name)  # noqa: SLF001
-            child_model = rel.related_model
+            # ManyToOneRel.related_model is typed as the concrete child model
+            # by Django, but django-stubs widens it to Model | "self" | None;
+            # we already validated this is a reverse FK in _resolve_reverse_aggregate.
+            child_model: type[Model] = rel.related_model  # type: ignore[assignment]
             fk_column = _col(rel.field)  # type: ignore[union-attr]
 
             # TODO(perf): the UPDATE trigger currently fires unconditionally,  # noqa: FIX002, TD003
