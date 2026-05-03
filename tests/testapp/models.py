@@ -194,6 +194,26 @@ class InvoiceLine(models.Model):
     note = models.CharField(max_length=100, default="")
 
 
+# --- GeneratedFieldTrigger: multi-hop aggregate over reverse relations ---
+
+
+class Customer(models.Model):
+    """Two hops up from CartItem.amount via Cart."""
+
+    name = models.CharField(max_length=100)
+    lifetime_total = models.IntegerField(default=0)
+
+
+class Cart(models.Model):
+    customer = models.ForeignKey(Customer, related_name="carts", on_delete=models.CASCADE)
+
+
+class CartItem(models.Model):
+    cart = models.ForeignKey(Cart, related_name="items", on_delete=models.CASCADE)
+    amount = models.IntegerField()
+    note = models.CharField(max_length=100, default="")
+
+
 # --- UniqueConstraintTrigger: index=True backing models (issue #10) ---
 
 

@@ -10,7 +10,7 @@ red and turn green as the implementation grows.
 
 import pytest
 from django.db.models import Avg, Count, Max, Min, Sum
-from testapp.models import Invoice, InvoiceLine
+from testapp.models import Cart, CartItem, Customer, Invoice, InvoiceLine
 
 from django_pgconstraints import GeneratedFieldTrigger
 from django_pgconstraints.cycles import CycleError, check_for_cycles
@@ -366,6 +366,27 @@ def test_refresh_dependent_aggregate_only_touches_queryset_invoices():
     b.refresh_from_db()
     assert a.total == 99  # reconciled
     assert b.total == 20  # untouched
+
+
+# ---------------------------------------------------------------------------
+# Multi-hop aggregates — Customer.lifetime_total = Sum("carts__items__amount")
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_multi_hop_customer_total_aggregates_through_carts():
+    """Two reverse-FK hops: Customer → carts → items → amount.
+
+    Pins the full contract for multi-hop aggregates: a CartItem write
+    propagates up two levels to refresh Customer.lifetime_total.
+    """
+    customer = Customer.objects.create(name="alice")
+    cart = Cart.objects.create(customer=customer)
+    CartItem.objects.create(cart=cart, amount=10)
+    CartItem.objects.create(cart=cart, amount=15)
+
+    customer.refresh_from_db()
+    assert customer.lifetime_total == 25
 
 
 @pytest.mark.django_db
