@@ -10,7 +10,12 @@ from django.db import DEFAULT_DB_ALIAS, connection
 from django.db.models import Deferrable
 from django.db.models.sql import Query
 
-from django_pgconstraints.sql import _col, _compile_q, _resolve_field_ref
+from django_pgconstraints.sql import (
+    _col,
+    _compile_q,
+    _resolve_field_ref,
+    _resolve_reverse_aggregate,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -70,7 +75,20 @@ def _replace_fk_refs(  # noqa: PLR0913
     rawsql_class: type,
     placeholders: dict[str, str],
 ) -> BaseExpression:
-    """Recursively replace FK-traversal F() refs with placeholder RawSQL."""
+    """Replace FK-traversal F() refs and reverse-relation Aggregates with RawSQL placeholders.
+
+    Aggregates are handled as a unit (we don't recurse into their source
+    expressions) because their F() refs name reverse relations rather than
+    forward FK chains, so they need a different SQL shape.
+    """
+    from django.db.models import Aggregate  # noqa: PLC0415
+
+    if isinstance(expr, Aggregate):
+        resolved_sql = _resolve_reverse_aggregate(expr, model, qn, row_ref=row_ref)
+        token = f"__pgc_agg_{len(placeholders)}__"
+        placeholders[token] = resolved_sql
+        return rawsql_class(token, ())
+
     if isinstance(expr, f_class):
         name: str = expr.name  # type: ignore[attr-defined]
         if "__" in name:
@@ -536,10 +554,17 @@ def _find_fk_refs(expr: BaseExpression) -> list[str]:
     """Find all FK-traversal F() references in an expression tree.
 
     Returns a list of ``__``-separated field chains (e.g. ``["part__base_price"]``).
+
+    Aggregate subtrees are skipped: their F() refs name reverse relations
+    rather than forward FK chains and are routed through a separate
+    discovery path.
     """
+    from django.db.models import Aggregate  # noqa: PLC0415
     from django.db.models import F as DjangoF  # noqa: PLC0415
 
     refs: list[str] = []
+    if isinstance(expr, Aggregate):
+        return refs
     if isinstance(expr, DjangoF):
         name: str = expr.name
         if "__" in name:

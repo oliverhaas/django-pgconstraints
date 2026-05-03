@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models import F, Q
+from django.db.models import F, Q, Sum
 from django.db.models.functions import Lower
 
 from django_pgconstraints import (
@@ -175,6 +175,15 @@ class Invoice(models.Model):
     """Parent of InvoiceLine. ``total`` is the SUM of related line amounts."""
 
     total = models.IntegerField(default=0)
+
+    class Meta:
+        triggers = [
+            GeneratedFieldTrigger(
+                field="total",
+                expression=Sum("lines__amount"),
+                name="invoice_total",
+            ),
+        ]
 
 
 class InvoiceLine(models.Model):

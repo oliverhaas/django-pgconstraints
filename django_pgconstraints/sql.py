@@ -69,6 +69,112 @@ def _concrete_col_sql(
     return f"(SELECT {col} FROM {tbl} WHERE {pk} = {fk_ref})"
 
 
+# Aggregate functions whose empty-set result we coerce to 0 instead of NULL.
+# Mirrors Django's own coalescing in `Aggregate(default=...)` for typical cases.
+_ZERO_DEFAULT_AGGREGATES = frozenset({"SUM", "COUNT"})
+
+
+def _resolve_reverse_aggregate(
+    aggregate: Any,  # noqa: ANN401
+    parent_model: type[Model],
+    qn: Callable[[str], str],
+    *,
+    row_ref: str,
+) -> str:
+    """Compile an Aggregate over a reverse relation to a SQL subquery.
+
+    ``Sum("lines__amount")`` on Invoice compiles to::
+
+        COALESCE(
+            (SELECT SUM("amount") FROM "testapp_invoiceline"
+             WHERE "invoice_id" = NEW."id"),
+            0
+        )
+
+    Supports a single-hop reverse FK only: ``rel`` (Count over the
+    relation) or ``rel__field`` (Sum/Avg/Max/Min over a column on the
+    child).  ``filter=`` and ``distinct=True`` are intentionally rejected
+    until the trigger machinery handles them coherently.
+    """
+    if getattr(aggregate, "filter", None) is not None:
+        msg = (
+            f"{type(aggregate).__name__}(filter=...) is not supported in "
+            f"GeneratedFieldTrigger expressions."
+        )
+        raise NotImplementedError(msg)
+    if getattr(aggregate, "distinct", False):
+        msg = (
+            f"{type(aggregate).__name__}(distinct=True) is not supported in "
+            f"GeneratedFieldTrigger expressions."
+        )
+        raise NotImplementedError(msg)
+
+    # Aggregate.get_source_expressions() reserves trailing slots for filter
+    # and default. Drop the Nones; we already rejected non-None filter/distinct
+    # above.
+    sources = [s for s in aggregate.get_source_expressions() if s is not None]
+    if len(sources) != 1:
+        msg = (
+            f"{type(aggregate).__name__} with {len(sources)} source expressions "
+            f"is not supported in GeneratedFieldTrigger; pass a single F() reference."
+        )
+        raise NotImplementedError(msg)
+    source = sources[0]
+    if not isinstance(source, F):
+        msg = (
+            f"Aggregate source must be an F() reference (or a string), "
+            f"got {type(source).__name__}."
+        )
+        raise NotImplementedError(msg)
+
+    name: str = source.name  # type: ignore[attr-defined]
+    parts = name.split("__")
+    if len(parts) > 2:
+        msg = (
+            f"Multi-hop aggregate references are not yet supported: {name!r}. "
+            f"Pass a single reverse-relation hop (rel or rel__field)."
+        )
+        raise NotImplementedError(msg)
+
+    rel_name = parts[0]
+    field_name = parts[1] if len(parts) == 2 else None
+
+    try:
+        rel = parent_model._meta.get_field(rel_name)  # noqa: SLF001
+    except FieldDoesNotExist:
+        msg = f"No relation {rel_name!r} on {parent_model.__name__}"
+        raise ValueError(msg) from None
+
+    if not getattr(rel, "one_to_many", False):
+        msg = (
+            f"Aggregate over {rel_name!r}: expected a reverse one-to-many "
+            f"relation (reverse FK), got {type(rel).__name__}."
+        )
+        raise ValueError(msg)
+
+    child_model = rel.related_model
+    fk_field = rel.field  # type: ignore[union-attr] — the FK on the child pointing back
+    fk_col = qn(_col(fk_field))
+    child_table = qn(child_model._meta.db_table)  # noqa: SLF001
+    parent_pk_col = qn(_col(parent_model._meta.pk))  # noqa: SLF001
+
+    if field_name is None:
+        agg_arg = "*"
+    else:
+        try:
+            agg_field = child_model._meta.get_field(field_name)  # noqa: SLF001
+        except FieldDoesNotExist:
+            msg = f"No field {field_name!r} on {child_model.__name__}"
+            raise ValueError(msg) from None
+        agg_arg = qn(_col(agg_field))
+
+    func: str = aggregate.function  # SUM, COUNT, AVG, MAX, MIN
+    inner = f"SELECT {func}({agg_arg}) FROM {child_table} WHERE {fk_col} = {row_ref}.{parent_pk_col}"
+    if func in _ZERO_DEFAULT_AGGREGATES:
+        return f"COALESCE(({inner}), 0)"
+    return f"({inner})"
+
+
 def _resolve_field_ref(
     chain: str,
     model: type[Model],
