@@ -74,3 +74,39 @@ def test_invoice_totals_isolated_across_invoices():
     b.refresh_from_db()
     assert a.total == 7
     assert b.total == 100
+
+
+@pytest.mark.django_db
+def test_invoice_total_recomputes_on_line_delete():
+    invoice = Invoice.objects.create()
+    a = InvoiceLine.objects.create(invoice=invoice, amount=10)
+    InvoiceLine.objects.create(invoice=invoice, amount=15)
+    invoice.refresh_from_db()
+    assert invoice.total == 25
+
+    a.delete()
+    invoice.refresh_from_db()
+    assert invoice.total == 15
+
+
+@pytest.mark.django_db
+def test_invoice_total_zero_when_all_lines_deleted():
+    invoice = Invoice.objects.create()
+    InvoiceLine.objects.create(invoice=invoice, amount=10)
+    InvoiceLine.objects.create(invoice=invoice, amount=15)
+    InvoiceLine.objects.filter(invoice=invoice).delete()
+
+    invoice.refresh_from_db()
+    assert invoice.total == 0
+
+
+@pytest.mark.django_db
+def test_cascade_delete_of_parent_does_not_error():
+    """Deleting the parent cascades to children; the AFTER DELETE trigger
+    fires but the parent is gone, so the UPDATE is a no-op."""
+    invoice = Invoice.objects.create()
+    InvoiceLine.objects.create(invoice=invoice, amount=10)
+    invoice.delete()
+
+    assert not Invoice.objects.exists()
+    assert not InvoiceLine.objects.exists()

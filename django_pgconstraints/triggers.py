@@ -1011,7 +1011,7 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
             child_model = rel.related_model
             fk_column = _col(rel.field)  # type: ignore[union-attr]
 
-            for op_name in ("insert",):  # later steps add update / delete
+            for op_name in ("insert", "delete"):  # update lands in the next step
                 key = (child_model._meta.label, op_name)  # noqa: SLF001
                 if key in seen_agg:
                     continue
