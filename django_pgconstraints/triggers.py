@@ -576,6 +576,30 @@ def _find_fk_refs(expr: BaseExpression) -> list[str]:
     return refs
 
 
+def _find_aggregate_refs(expr: BaseExpression) -> list[tuple[Any, str]]:
+    """Return ``(aggregate, source_name)`` pairs for every Aggregate in the tree.
+
+    Aggregates are not recursed into; their source expressions are validated
+    by :func:`_resolve_reverse_aggregate` at compile time. ``F()`` references
+    are leaves with no source expressions.
+    """
+    from django.db.models import Aggregate  # noqa: PLC0415
+    from django.db.models import F as DjangoF  # noqa: PLC0415
+
+    refs: list[tuple[Any, str]] = []
+    if isinstance(expr, Aggregate):
+        sources = [s for s in expr.get_source_expressions() if s is not None]
+        if len(sources) == 1 and isinstance(sources[0], DjangoF):
+            refs.append((expr, sources[0].name))
+        return refs
+    if isinstance(expr, DjangoF):
+        return refs
+    for child in expr.get_source_expressions():
+        if child is not None:
+            refs.extend(_find_aggregate_refs(child))
+    return refs
+
+
 @dataclass
 class _FKHop:
     """One hop in an FK chain."""
@@ -729,6 +753,91 @@ class _GeneratedFieldReverse(pgtrigger.Trigger):
         """)
 
 
+class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
+    """Statement-level AFTER trigger on the child of an aggregated reverse FK.
+
+    Recomputes the parent's aggregate field for every parent whose child
+    rows changed in the firing statement. One instance handles a single
+    operation (INSERT, UPDATE, or DELETE); the multi-operation case is
+    served by registering separate instances.
+
+    Affected parent IDs come from the transition tables: ``new_rows`` for
+    INSERT, ``old_rows`` for DELETE, and the union of both for UPDATE
+    (a row whose FK pivots between parents touches both).
+    """
+
+    when = pgtrigger.After
+    level = pgtrigger.Statement
+
+    _OPERATION_MAP = {
+        "insert": pgtrigger.Insert,
+        "update": pgtrigger.Update,
+        "delete": pgtrigger.Delete,
+    }
+
+    def __init__(
+        self,
+        *,
+        parent_model_label: str,
+        parent_field: str,
+        expression: BaseExpression,
+        fk_column: str,
+        operation_name: str,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> None:
+        if operation_name not in self._OPERATION_MAP:
+            msg = f"Unsupported operation_name: {operation_name!r}"
+            raise ValueError(msg)
+        self.parent_model_label = parent_model_label
+        self.parent_field = parent_field
+        self.expression = expression
+        self.fk_column = fk_column
+        self.operation_name = operation_name
+
+        kwargs.setdefault("operation", self._OPERATION_MAP[operation_name])
+        if operation_name == "insert":
+            kwargs.setdefault("referencing", pgtrigger.Referencing(new="new_rows"))
+        elif operation_name == "delete":
+            kwargs.setdefault("referencing", pgtrigger.Referencing(old="old_rows"))
+        else:  # update
+            kwargs.setdefault("referencing", pgtrigger.Referencing(old="old_rows", new="new_rows"))
+        super().__init__(**kwargs)
+
+    def get_func(self, model: Model) -> str:  # noqa: ARG002
+        from django.apps import apps  # noqa: PLC0415
+
+        qn = pgtrigger.utils.quote
+
+        parent_model = apps.get_model(self.parent_model_label)
+        parent_table = qn(parent_model._meta.db_table)  # noqa: SLF001
+        parent_pk_col = qn(_col(parent_model._meta.pk))  # noqa: SLF001
+        parent_field_col = qn(_col(parent_model._meta.get_field(self.parent_field)))  # noqa: SLF001
+        fk_col = qn(self.fk_column)
+
+        # Compile the parent's aggregate expression with the parent table
+        # as row_ref so the child subquery becomes correlated to the outer
+        # UPDATE: WHERE invoice_id = "testapp_invoice"."id".
+        expr_sql = _compile_expression(self.expression, parent_model, row_ref=parent_table)
+
+        if self.operation_name == "insert":
+            affected = f"SELECT DISTINCT {fk_col} FROM new_rows WHERE {fk_col} IS NOT NULL"
+        elif self.operation_name == "delete":
+            affected = f"SELECT DISTINCT {fk_col} FROM old_rows WHERE {fk_col} IS NOT NULL"
+        else:  # update
+            affected = (
+                f"SELECT DISTINCT {fk_col} FROM new_rows WHERE {fk_col} IS NOT NULL "
+                f"UNION "
+                f"SELECT DISTINCT {fk_col} FROM old_rows WHERE {fk_col} IS NOT NULL"
+            )
+
+        return self.format_sql(f"""
+            UPDATE {parent_table}
+            SET {parent_field_col} = {expr_sql}
+            WHERE {parent_pk_col} IN ({affected});
+            RETURN NULL;
+        """)
+
+
 class GeneratedFieldTrigger(pgtrigger.Trigger):
     """Automatically compute and set a field value from an expression.
 
@@ -815,9 +924,14 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
         For each FK chain in the expression, creates reverse triggers on:
         1. The leaf model (when the referenced field changes)
         2. Each intermediate model (when the FK column changes)
+
+        For each Aggregate over a reverse relation, creates statement-level
+        triggers on the child model so child INSERT/UPDATE/DELETE refresh
+        the parent's aggregate.
         """
         fk_refs = _find_fk_refs(self.expression)
-        if not fk_refs:
+        aggregate_refs = _find_aggregate_refs(self.expression)
+        if not fk_refs and not aggregate_refs:
             return []
 
         result: list[tuple[type[Model], pgtrigger.Trigger]] = []
@@ -885,6 +999,36 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
                             ),
                         ),
                     )
+
+        # Aggregate reverse triggers: one per (child_model, operation).
+        # Multiple aggregates over the same reverse relation share triggers
+        # since the recompute SQL is the same regardless of which aggregate
+        # the child write affects.
+        seen_agg: set[tuple[str, str]] = set()
+        for _aggregate, source_name in aggregate_refs:
+            rel_name = source_name.split("__")[0]
+            rel = model._meta.get_field(rel_name)  # noqa: SLF001
+            child_model = rel.related_model
+            fk_column = _col(rel.field)  # type: ignore[union-attr]
+
+            for op_name in ("insert",):  # later steps add update / delete
+                key = (child_model._meta.label, op_name)  # noqa: SLF001
+                if key in seen_agg:
+                    continue
+                seen_agg.add(key)
+                result.append(
+                    (
+                        child_model,
+                        _GeneratedFieldAggregateReverse(
+                            parent_model_label=child_label,
+                            parent_field=self.field,
+                            expression=self.expression,
+                            fk_column=fk_column,
+                            operation_name=op_name,
+                            name=f"{self.name}_agg_{op_name}_{rel_name}",
+                        ),
+                    ),
+                )
 
         return result
 

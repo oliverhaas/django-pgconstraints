@@ -45,3 +45,32 @@ def test_invoice_total_zero_for_empty_invoice():
     invoice = Invoice.objects.create()
     invoice.refresh_from_db()
     assert invoice.total == 0
+
+
+@pytest.mark.django_db
+def test_invoice_total_bulk_insert_lines():
+    """One bulk_create touches the parent once via the transition table."""
+    invoice = Invoice.objects.create()
+    InvoiceLine.objects.bulk_create([
+        InvoiceLine(invoice=invoice, amount=5),
+        InvoiceLine(invoice=invoice, amount=7),
+        InvoiceLine(invoice=invoice, amount=11),
+    ])
+
+    invoice.refresh_from_db()
+    assert invoice.total == 23
+
+
+@pytest.mark.django_db
+def test_invoice_totals_isolated_across_invoices():
+    """Inserting a line on invoice A must not touch invoice B's total."""
+    a = Invoice.objects.create()
+    b = Invoice.objects.create()
+    InvoiceLine.objects.create(invoice=a, amount=3)
+    InvoiceLine.objects.create(invoice=b, amount=100)
+    InvoiceLine.objects.create(invoice=a, amount=4)
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.total == 7
+    assert b.total == 100
