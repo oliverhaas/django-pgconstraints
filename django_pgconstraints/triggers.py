@@ -1011,7 +1011,12 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
             child_model = rel.related_model
             fk_column = _col(rel.field)  # type: ignore[union-attr]
 
-            for op_name in ("insert", "delete"):  # update lands in the next step
+            # TODO(perf): the UPDATE trigger currently fires unconditionally,  # noqa: FIX002, TD003
+            # so child UPDATEs that touch neither the aggregated column nor
+            # the FK still pay the recompute cost. Add IS DISTINCT FROM
+            # gating across the watched columns once the gating-on-multiple-
+            # aggregates story is settled.
+            for op_name in ("insert", "update", "delete"):
                 key = (child_model._meta.label, op_name)  # noqa: SLF001
                 if key in seen_agg:
                     continue

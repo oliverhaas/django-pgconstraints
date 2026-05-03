@@ -110,3 +110,52 @@ def test_cascade_delete_of_parent_does_not_error():
 
     assert not Invoice.objects.exists()
     assert not InvoiceLine.objects.exists()
+
+
+@pytest.mark.django_db
+def test_invoice_total_recomputes_on_line_amount_update():
+    invoice = Invoice.objects.create()
+    line = InvoiceLine.objects.create(invoice=invoice, amount=10)
+    InvoiceLine.objects.create(invoice=invoice, amount=15)
+    invoice.refresh_from_db()
+    assert invoice.total == 25
+
+    line.amount = 100
+    line.save()
+
+    invoice.refresh_from_db()
+    assert invoice.total == 115
+
+
+@pytest.mark.django_db
+def test_invoice_total_recomputes_on_bulk_update():
+    invoice = Invoice.objects.create()
+    InvoiceLine.objects.create(invoice=invoice, amount=10)
+    InvoiceLine.objects.create(invoice=invoice, amount=15)
+
+    InvoiceLine.objects.filter(invoice=invoice).update(amount=7)
+
+    invoice.refresh_from_db()
+    assert invoice.total == 14
+
+
+@pytest.mark.django_db
+def test_invoice_total_recomputes_when_line_pivots_to_other_invoice():
+    """Moving a line from invoice A to invoice B: both totals updated."""
+    a = Invoice.objects.create()
+    b = Invoice.objects.create()
+    line = InvoiceLine.objects.create(invoice=a, amount=42)
+    InvoiceLine.objects.create(invoice=b, amount=8)
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.total == 42
+    assert b.total == 8
+
+    line.invoice = b
+    line.save()
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    assert a.total == 0
+    assert b.total == 50
