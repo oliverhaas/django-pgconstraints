@@ -974,8 +974,8 @@
 
 <h1 id="uniqueconstrainttrigger">UniqueConstraintTrigger<a class="headerlink" href="#uniqueconstrainttrigger" title="Permanent link">&para;</a></h1>
 <p>A trigger-based unique constraint. The API mirrors Django's
-<code>UniqueConstraint</code> — same parameter names, same semantics where they
-overlap — but <code>fields=</code> additionally accepts foreign-key chains
+<code>UniqueConstraint</code> with the same parameter names and semantics where they
+overlap, except <code>fields=</code> additionally accepts foreign-key chains
 (<code>"book__author"</code>).</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django_pgconstraints</span><span class="w"> </span><span class="kn">import</span> <span class="n">UniqueConstraintTrigger</span>
 </code></pre></div>
@@ -1029,7 +1029,7 @@ the current table.</p>
 <a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="p">)</span>
 </code></pre></div>
 <p><code>fields</code> and expressions cannot be combined on the same trigger. Triggers
-built from expressions also cannot be deferred — PostgreSQL can't defer a
+built from expressions also cannot be deferred. PostgreSQL can't defer a
 purely functional check the same way it defers a real constraint.</p>
 <h2 id="partial-uniqueness">Partial uniqueness<a class="headerlink" href="#partial-uniqueness" title="Permanent link">&para;</a></h2>
 <p>Supply a <code>Q</code> as <code>condition=</code> to only enforce uniqueness for matching rows:</p>

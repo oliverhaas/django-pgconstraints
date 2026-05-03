@@ -873,8 +873,8 @@ runs them during <code>full_clean()</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">line</span> <span class="o">=</span> <span class="n">OrderLine</span><span class="p">(</span><span class="n">product</span><span class="o">=</span><span class="n">product</span><span class="p">,</span> <span class="n">quantity</span><span class="o">=</span><span class="mi">9999</span><span class="p">)</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">line</span><span class="o">.</span><span class="n">full_clean</span><span class="p">()</span>  <span class="c1"># ValidationError — CheckConstraintTrigger caught it</span>
 </code></pre></div>
-<p>No extra wiring is required — the triggers are discovered through the
-normal constraint-validation path.</p>
+<p>The triggers are discovered through the normal constraint-validation
+path.</p>
 <h2 id="uniqueconstrainttrigger"><code>UniqueConstraintTrigger</code><a class="headerlink" href="#uniqueconstrainttrigger" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Plain fields and <code>__</code>-separated FK chains are validated by an ORM
@@ -892,7 +892,7 @@ normal constraint-validation path.</p>
   instance's field values, the same way Django's <code>CheckConstraint</code> does
   it.</li>
 <li>Conditions that reference related columns via <code>F("rel__field")</code> skip
-  the Python path — the ORM would have to issue a query for every hop,
+  the Python path. The ORM would have to issue a query for every hop,
   and the trigger will catch the violation at <code>save()</code> time anyway.</li>
 </ul>
 <h2 id="custom-error-codes-and-messages">Custom error codes and messages<a class="headerlink" href="#custom-error-codes-and-messages" title="Permanent link">&para;</a></h2>
@@ -906,7 +906,7 @@ and message that the rest of the application expects:</p>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;orderline_qty_positive&quot;</span><span class="p">,</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">)</span>
 </code></pre></div>
-<p>The database-level <code>IntegrityError</code> is unaffected — it still comes back
+<p>The database-level <code>IntegrityError</code> is unaffected. It still comes back
 with the PostgreSQL SQLSTATE (<code>23505</code> for unique, <code>23514</code> for check).</p>
 <h2 id="generatedfieldtrigger"><code>GeneratedFieldTrigger</code><a class="headerlink" href="#generatedfieldtrigger" title="Permanent link">&para;</a></h2>
 <p><code>GeneratedFieldTrigger</code> does not implement <code>validate()</code>. It computes a

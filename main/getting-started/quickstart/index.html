@@ -870,10 +870,9 @@ name must be unique per publisher, following two foreign keys.</p>
 <a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>            <span class="p">),</span>
 <a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>        <span class="p">]</span>
 </code></pre></div>
-<p>The key bit is <code>"series__publisher"</code> — two underscore-separated hops
-from <code>Chapter</code> to <code>Publisher</code>. The trigger resolves it to a nested SQL
-subquery under the hood, so the uniqueness check does not materialise the
-join in Python.</p>
+<p><code>"series__publisher"</code> is two underscore-separated hops from <code>Chapter</code> to
+<code>Publisher</code>. The trigger resolves it to a nested SQL subquery, so the
+uniqueness check does not materialise the join in Python.</p>
 <h2 id="migrate">Migrate<a class="headerlink" href="#migrate" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>makemigrations
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>python<span class="w"> </span>manage.py<span class="w"> </span>migrate

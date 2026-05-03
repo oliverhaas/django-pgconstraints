@@ -1111,7 +1111,7 @@ stays in sync when the referenced data changes.</p>
 </tbody>
 </table>
 <p>The target column is a regular field, which means you define it like any
-other field — pick a type and a default that is valid until the trigger
+other field. Pick a type and a default that is valid until the trigger
 runs.</p>
 <h2 id="simple-expression-same-table">Simple expression (same table)<a class="headerlink" href="#simple-expression-same-table" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">django.db.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">F</span>
@@ -1158,22 +1158,22 @@ round-trip. See <a href="#instance-refresh">Instance refresh</a> below.</p>
 <p>In addition, the package installs a <strong>reverse trigger</strong> on <code>Supplier</code>:
 whenever <code>Supplier.markup_pct</code> changes, every related <code>Part</code> row has its
 <code>markup_amount</code> recomputed in the same transaction. Reverse triggers are
-registered from <code>AppConfig.ready()</code> and follow arbitrary-depth FK chains
-— if the expression is <code>F("part__supplier__markup_pct")</code>, reverse
-triggers are installed on both <code>Part</code> (for changes to <code>Part.supplier_id</code>)
-and <code>Supplier</code> (for changes to <code>markup_pct</code>).</p>
+registered from <code>AppConfig.ready()</code> and follow arbitrary-depth FK chains.
+If the expression is <code>F("part__supplier__markup_pct")</code>, reverse triggers
+are installed on both <code>Part</code> (for changes to <code>Part.supplier_id</code>) and
+<code>Supplier</code> (for changes to <code>markup_pct</code>).</p>
 <h2 id="read-only-by-convention">Read-only by convention<a class="headerlink" href="#read-only-by-convention" title="Permanent link">&para;</a></h2>
-<p>The target column is a regular column; PostgreSQL will happily let you
-write to it. Any manual write — ORM or raw SQL — is silently overwritten
-the next time the row is written again, because the trigger reruns and
-replaces the column value. Treat the field as read-only.</p>
+<p>The target column is a regular column; PostgreSQL will let you write to
+it. Any manual write (ORM or raw SQL) is silently overwritten the next
+time the row is written again, because the trigger reruns and replaces
+the column value. Treat the field as read-only.</p>
 <h2 id="instance-refresh">Instance refresh<a class="headerlink" href="#instance-refresh" title="Permanent link">&para;</a></h2>
 <p>With <code>auto_refresh=True</code> (the default) the Python instance is kept in
 sync with the trigger-computed value for the APIs that already round-trip
 per object:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">item</span> <span class="o">=</span> <span class="n">LineItem</span><span class="p">(</span><span class="n">price</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">quantity</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">item</span><span class="o">.</span><span class="n">save</span><span class="p">()</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">item</span><span class="o">.</span><span class="n">total</span>  <span class="c1"># Decimal(&#39;30.00&#39;) — arrived via RETURNING, no extra SELECT</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">item</span><span class="o">.</span><span class="n">total</span>  <span class="c1"># Decimal(&#39;30.00&#39;), arrived via RETURNING, no extra SELECT</span>
 </code></pre></div>
 <table>
 <thead>
@@ -1217,14 +1217,14 @@ per object:</p>
 </tbody>
 </table>
 <p>Pass <code>auto_refresh=False</code> to skip the RETURNING wiring for a specific
-trigger — useful if you never read the computed field from the Python
-instance after writing, or if a third-party layer interferes with the
-extended <code>returning_fields</code>. With the opt-out you stay on the
+trigger. This is useful if you never read the computed field from the
+Python instance after writing, or if a third-party layer interferes with
+the extended <code>returning_fields</code>. With the opt-out you stay on the
 pre-auto-refresh behavior: the DB has the correct value, the in-memory
 instance does not, and you call <code>refresh_from_db()</code> yourself.</p>
 <h3 id="bulk_update-limitation"><code>bulk_update</code> limitation<a class="headerlink" href="#bulk_update-limitation" title="Permanent link">&para;</a></h3>
 <p><code>bulk_update</code> emits a <code>CASE WHEN … END</code> UPDATE that returns only a row
-count — the passed-in Python objects keep whatever values they held
+count, so the passed-in Python objects keep whatever values they held
 before the call. This is a Django-wide limitation, not specific to
 <code>GeneratedFieldTrigger</code>: Django's own <code>GeneratedField</code> has the same
 staleness after <code>bulk_update</code>.</p>
@@ -1232,17 +1232,16 @@ staleness after <code>bulk_update</code>.</p>
 <code>update()</code> / <code>bulk_update()</code>) with an active but unmerged draft
 <a href="https://github.com/django/django/pull/19298">PR #19298</a>. The core-team blocker is API shape, not technical
 doubt. The single-instance <code>save()</code> path was fixed earlier via
-<a href="https://code.djangoproject.com/ticket/27222">ticket #27222</a>, which is the same machinery this package
-piggybacks on.</p>
+<a href="https://code.djangoproject.com/ticket/27222">ticket #27222</a>, the same machinery this package piggybacks on.</p>
 <p>Until <code>bulk_update</code> learns to return rows, the options are:</p>
 <ol>
-<li><strong>Re-query</strong>: after <code>bulk_update</code>, hit the database once more —
+<li><strong>Re-query</strong>: after <code>bulk_update</code>, hit the database once more.
    <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">Model</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">bulk_update</span><span class="p">(</span><span class="n">objs</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;price&quot;</span><span class="p">])</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">fresh</span> <span class="o">=</span> <span class="p">{</span><span class="n">o</span><span class="o">.</span><span class="n">pk</span><span class="p">:</span> <span class="n">o</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">Model</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pk__in</span><span class="o">=</span><span class="p">[</span><span class="n">o</span><span class="o">.</span><span class="n">pk</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">])}</span>
 </code></pre></div></li>
 <li><strong>Use <code>bulk_create(update_conflicts=True)</code> as an upsert.</strong> <a href="https://code.djangoproject.com/ticket/34698">Ticket
    #34698</a> (fixed in Django 5.0) made this path populate
-   <code>RETURNING</code> fields — including trigger-backed values — onto the
+   <code>RETURNING</code> fields, including trigger-backed values, onto the
    passed-in instances, on PostgreSQL / MariaDB 10.5+ / SQLite 3.35+.
    For workloads that already have full rows in Python, this is a
    zero-extra-query alternative to <code>bulk_update</code>:
@@ -1254,7 +1253,7 @@ piggybacks on.</p>
 <a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">)</span>
 <a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># objs now carry the trigger-computed values.</span>
 </code></pre></div>
-   Caveats to be aware of before reaching for this as a drop-in:</li>
+   Caveats:</li>
 <li><strong>Full-instance payload.</strong> <code>bulk_create</code> sends every column on
      every object, not just <code>update_fields</code>. <code>bulk_update</code> sends only
      the fields you list. If your objects were rehydrated from the DB
@@ -1269,8 +1268,8 @@ piggybacks on.</p>
      Then <code>BEFORE UPDATE</code> fires for the DO UPDATE branch. Plain
      <code>bulk_update</code> only fires <code>BEFORE UPDATE</code>. <code>GeneratedFieldTrigger</code>
      itself is unaffected (it fires on both and recomputes the same
-     value), but other <code>BEFORE INSERT</code> triggers with side effects —
-     auditing, ID minting, logging — will run on what is really an
+     value), but other <code>BEFORE INSERT</code> triggers with side effects
+     (auditing, ID minting, logging) will run on what is really an
      update.</li>
 <li><strong>Performance.</strong> For large batches of pure updates with few
      columns, the <code>CASE WHEN</code> path <code>bulk_update</code> uses is meaningfully
@@ -1331,7 +1330,7 @@ overwritten on save:</p>
 <p>The mixin preserves any <code>readonly_fields</code> you declare manually and
 appends the computed fields on top.</p>
 <h2 id="validation">Validation<a class="headerlink" href="#validation" title="Permanent link">&para;</a></h2>
-<p><code>GeneratedFieldTrigger</code> does not participate in <code>full_clean()</code> — it is
+<p><code>GeneratedFieldTrigger</code> does not participate in <code>full_clean()</code>. It is
 computing a value rather than enforcing a constraint. Whatever the trigger
 produces is what ends up in the column.</p>
 
