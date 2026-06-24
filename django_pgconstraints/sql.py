@@ -1,17 +1,35 @@
 """SQL helper functions for compiling Q objects to PL/pgSQL."""
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import FieldDoesNotExist
 from django.db import connection
-from django.db.models import F, Q
+from django.db.models import F, Model, Q
 from django.db.models.expressions import RawSQL
 from django.db.models.sql import Query
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from django.db.models import Field, Model
+    from django.db.models import Field
+
+
+@dataclass(frozen=True)
+class _AggregateHop:
+    """One reverse-FK hop in a multi-hop aggregate chain.
+
+    Stored parent-to-leaf: ``chain[0]`` is the first hop from the parent
+    (e.g. ``Customer.carts``) and ``chain[-1]`` is the leaf (e.g.
+    ``Cart.items``). ``fk_column`` always names the FK column on
+    *this* hop's table pointing back at the previous level.
+    """
+
+    rel_name: str  # accessor name on the parent model (e.g. "carts")
+    fk_column: str  # FK column on this hop's table pointing to parent (e.g. "customer_id")
+    table: str  # this hop's child table name (e.g. "testapp_cart")
+    pk: str  # this hop's PK column (almost always "id")
+    related_model: type[Model]  # the Django model class for this hop's table
 
 
 def _col(field: Any) -> str:  # noqa: ANN401
@@ -67,6 +85,182 @@ def _concrete_col_sql(
     tbl = qn(current_model._meta.db_table)  # noqa: SLF001
     pk = qn(_col(current_model._meta.pk))  # noqa: SLF001
     return f"(SELECT {col} FROM {tbl} WHERE {pk} = {fk_ref})"
+
+
+# Aggregate functions whose empty-set result we coerce to 0 instead of NULL.
+# Mirrors Django's own coalescing in `Aggregate(default=...)` for typical cases.
+_ZERO_DEFAULT_AGGREGATES = frozenset({"SUM", "COUNT"})
+
+
+def _validate_aggregate_shape(aggregate: Any) -> str:  # noqa: ANN401
+    """Reject filter, distinct, multi-source, and non-F sources. Return the F name."""
+    if getattr(aggregate, "filter", None) is not None:
+        msg = f"{type(aggregate).__name__}(filter=...) is not supported in GeneratedFieldTrigger expressions."
+        raise NotImplementedError(msg)
+    if getattr(aggregate, "distinct", False):
+        msg = f"{type(aggregate).__name__}(distinct=True) is not supported in GeneratedFieldTrigger expressions."
+        raise NotImplementedError(msg)
+
+    # Aggregate.get_source_expressions() reserves trailing slots for filter
+    # and default. Drop the Nones; we already rejected non-None filter above.
+    sources = [s for s in aggregate.get_source_expressions() if s is not None]
+    if len(sources) != 1:
+        msg = (
+            f"{type(aggregate).__name__} with {len(sources)} source expressions "
+            f"is not supported in GeneratedFieldTrigger; pass a single F() reference."
+        )
+        raise NotImplementedError(msg)
+    source = sources[0]
+    if not isinstance(source, F):
+        msg = f"Aggregate source must be an F() reference (or a string), got {type(source).__name__}."
+        raise NotImplementedError(msg)
+    return source.name  # type: ignore[attr-defined]
+
+
+def _parse_aggregate_chain(
+    name: str,
+    parent_model: type[Model],
+) -> tuple[list[_AggregateHop], type[Model], str | None]:
+    """Walk the ``__``-separated path on *parent_model*, returning chain and leaf.
+
+    Every non-final segment must be a reverse one-to-many FK accessor.
+    The final segment is either:
+
+    - a reverse FK accessor (the COUNT-over-relation case), in which case
+      the leaf field is ``None`` and the chain extends through it;
+    - a concrete column on the model reached by the previous hop, in
+      which case the leaf field is that column name.
+
+    Mixed forward/reverse paths and m2m hops are rejected with a
+    ``ValueError`` whose message names the offending segment.
+    """
+    parts = name.split("__")
+    chain: list[_AggregateHop] = []
+    current_model = parent_model
+
+    for i, part in enumerate(parts):
+        is_last = i == len(parts) - 1
+        try:
+            field = current_model._meta.get_field(part)  # noqa: SLF001
+        except FieldDoesNotExist:
+            owner = current_model.__name__
+            msg = f"No relation or field {part!r} on {owner} (in aggregate path {name!r})"
+            raise ValueError(msg) from None
+
+        if getattr(field, "one_to_many", False):
+            related_model: type[Model] = field.related_model  # type: ignore[assignment]
+            fk_field = field.field  # type: ignore[union-attr]
+            chain.append(
+                _AggregateHop(
+                    rel_name=part,
+                    fk_column=_col(fk_field),
+                    table=related_model._meta.db_table,  # noqa: SLF001
+                    pk=_col(related_model._meta.pk),  # noqa: SLF001
+                    related_model=related_model,
+                ),
+            )
+            current_model = related_model
+            continue
+
+        if is_last and not field.is_relation:
+            return chain, current_model, _col(field)
+
+        owner = current_model.__name__
+        msg = (
+            f"Aggregate path {name!r}: segment {part!r} on {owner} must be a "
+            f"reverse one-to-many relation"
+            + (" (or a concrete column at the leaf)" if is_last else "")
+            + f", got {type(field).__name__}."
+        )
+        raise ValueError(msg)
+
+    if not chain:
+        msg = f"Aggregate path {name!r} resolved to no hops; pass at least one reverse-relation accessor."
+        raise ValueError(msg)
+    # Path ended on a reverse-FK accessor — Count-over-relation case.
+    return chain, current_model, None
+
+
+def _walk_aggregate_chain_to_root(
+    chain: tuple[_AggregateHop, ...],
+    qn: Callable[[str], str],
+    seed_sql: str,
+) -> str:
+    """Walk leaf-level FK values up through *chain* to the root parent's PK domain.
+
+    *seed_sql* is a SELECT that returns leaf-level FK values (i.e. the
+    column ``chain[-1].fk_column``, which names the next-level-up
+    table's PKs). For each intermediate hop, wrap in a
+    ``SELECT fk FROM <table> WHERE pk IN (...)``.
+
+    For a single-hop chain the leaf hop's FK values *are* root-parent
+    PKs, so the seed is returned unchanged.
+    """
+    inner = seed_sql
+    for hop in reversed(chain[:-1]):
+        inner = (
+            f"SELECT DISTINCT {qn(hop.fk_column)} FROM {qn(hop.table)} "
+            f"WHERE {qn(hop.fk_column)} IS NOT NULL "
+            f"AND {qn(hop.pk)} IN ({inner})"
+        )
+    return inner
+
+
+def _resolve_reverse_aggregate(
+    aggregate: Any,  # noqa: ANN401
+    parent_model: type[Model],
+    qn: Callable[[str], str],
+    *,
+    row_ref: str,
+) -> str:
+    """Compile an Aggregate over an arbitrary chain of reverse FKs to a SQL subquery.
+
+    ``Sum("lines__amount")`` on Invoice compiles to::
+
+        COALESCE(
+            (SELECT SUM("amount") FROM "testapp_invoiceline"
+             WHERE "invoice_id" = NEW."id"),
+            0
+        )
+
+    ``Sum("carts__items__amount")`` on Customer compiles to a nested form::
+
+        COALESCE((
+            SELECT SUM("amount") FROM "testapp_cartitem"
+            WHERE "cart_id" IN (
+                SELECT "id" FROM "testapp_cart" WHERE "customer_id" = NEW."id"
+            )
+        ), 0)
+
+    Every hop must be a reverse one-to-many FK; mixed forward/reverse
+    paths are rejected. ``filter=`` and ``distinct=True`` are also
+    rejected until the trigger machinery handles them coherently.
+    """
+    name = _validate_aggregate_shape(aggregate)
+    chain, leaf_model, leaf_field_column = _parse_aggregate_chain(name, parent_model)
+
+    parent_pk_col = qn(_col(parent_model._meta.pk))  # noqa: SLF001
+    func: str = aggregate.function  # SUM, COUNT, AVG, MAX, MIN
+    agg_arg = "*" if leaf_field_column is None else qn(leaf_field_column)
+
+    # Build inside-out: innermost WHERE compares the first hop's FK to the
+    # parent's PK on row_ref; each subsequent hop wraps the current SELECT
+    # in `IN (SELECT pk FROM ...)`.
+    condition = f"{qn(chain[0].fk_column)} = {row_ref}.{parent_pk_col}"
+    inner_table = chain[0].table
+    inner_pk = chain[0].pk
+
+    for hop in chain[1:]:
+        inner_query = f"SELECT {qn(inner_pk)} FROM {qn(inner_table)} WHERE {condition}"
+        condition = f"{qn(hop.fk_column)} IN ({inner_query})"
+        inner_table = hop.table
+        inner_pk = hop.pk
+
+    leaf_table = qn(leaf_model._meta.db_table)  # noqa: SLF001
+    aggregate_query = f"SELECT {func}({agg_arg}) FROM {leaf_table} WHERE {condition}"
+    if func in _ZERO_DEFAULT_AGGREGATES:
+        return f"COALESCE(({aggregate_query}), 0)"
+    return f"({aggregate_query})"
 
 
 def _resolve_field_ref(
