@@ -31,7 +31,7 @@ Changelog = "https://oliverhaas.github.io/django-pgconstraints/reference/changel
 [dependency-groups]
 dev = [
   "factory-boy==3.3.3",
-  "mypy==2.3.0",
+  "mypy==2.3.1",
   "django-stubs==6.1.0",
   "pre-commit==4.6.2",
   "pytest==9.1.1",
@@ -39,7 +39,7 @@ dev = [
   "pytest-django==4.14.0",
   "pytest-flakefinder==1.1.0",
   "pytest-xdist==3.8.0",
-  "ruff==0.16.2",
+  "ruff==0.16.3",
   "psycopg[c]==3.3.4",
   "testcontainers[postgres]==4.15.0",
 ]
