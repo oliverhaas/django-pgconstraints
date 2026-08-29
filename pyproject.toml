@@ -39,7 +39,7 @@ dev = [
   "pytest-django==4.14.0",
   "pytest-flakefinder==1.1.0",
   "pytest-xdist==3.8.0",
-  "ruff==0.16.3",
+  "ruff==0.16.4",
   "psycopg[c]==3.3.4",
   "testcontainers[postgres]==4.15.0",
 ]
