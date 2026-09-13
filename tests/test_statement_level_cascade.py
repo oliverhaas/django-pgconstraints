@@ -182,11 +182,15 @@ def test_deployed_reverse_trigger_is_statement_level():
     )
 
     with connection.cursor() as cur:
+        # Use a regex match so the underscores around ``_rev_`` are
+        # literal: SQL LIKE treats ``_`` as a single-char wildcard, which
+        # false-matches any name with ``rev`` between two characters
+        # (e.g. ``revenue``).
         cur.execute(
             "SELECT c.relname AS tablename, t.tgname, t.tgtype & 1 AS is_row "
             "FROM pg_trigger t "
             "JOIN pg_class c ON c.oid = t.tgrelid "
-            "WHERE t.tgname LIKE 'pgtrigger_%%_rev_%%' "
+            "WHERE t.tgname ~ '^pgtrigger_.*_rev_.*$' "
             "AND NOT t.tgisinternal",
         )
         rows = cur.fetchall()

@@ -1,7 +1,8 @@
 """pgtrigger-based trigger classes for django-pgconstraints."""
 
+import hashlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pgtrigger
 import pgtrigger.utils
@@ -10,13 +11,44 @@ from django.db import DEFAULT_DB_ALIAS, connection
 from django.db.models import Deferrable
 from django.db.models.sql import Query
 
-from django_pgconstraints.sql import _col, _compile_q, _resolve_field_ref
+from django_pgconstraints.sql import (
+    _AggregateHop,
+    _col,
+    _compile_q,
+    _parse_aggregate_chain,
+    _resolve_field_ref,
+    _resolve_reverse_aggregate,
+    _walk_aggregate_chain_to_root,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from django.db.models import Model, Q
     from django.db.models.expressions import BaseExpression
+
+
+# pgtrigger caps trigger names at 47 chars; long aggregate chain paths
+# (e.g. ``accounts__subscriptions__charges``) blow past that, so we
+# fall back to a stable short hash when the human-readable form is too
+# long. Reserve a few chars for the trailing ``_<hash>`` suffix and
+# the surrounding ``{base}_agg_{op}_`` framing.
+_MAX_TRIGGER_NAME_LENGTH = 47
+_TRIGGER_NAME_HASH_LENGTH = 8
+
+
+def _aggregate_trigger_name(base: str | None, op_name: str, rel_path: str) -> str:
+    """Build a unique aggregate-trigger name that fits pgtrigger's length limit.
+
+    Prefer the readable form ``{base}_agg_{op}_{rel_path}``; if that
+    overflows, replace ``rel_path`` with a hash of the original path so
+    the name stays stable across runs and unique per chain.
+    """
+    candidate = f"{base}_agg_{op_name}_{rel_path}"
+    if len(candidate) <= _MAX_TRIGGER_NAME_LENGTH:
+        return candidate
+    digest = hashlib.md5(rel_path.encode(), usedforsecurity=False).hexdigest()[:_TRIGGER_NAME_HASH_LENGTH]
+    return f"{base}_agg_{op_name}_{digest}"
 
 
 # ======================================================================
@@ -70,7 +102,20 @@ def _replace_fk_refs(  # noqa: PLR0913
     rawsql_class: type,
     placeholders: dict[str, str],
 ) -> BaseExpression:
-    """Recursively replace FK-traversal F() refs with placeholder RawSQL."""
+    """Replace FK-traversal F() refs and reverse-relation Aggregates with RawSQL placeholders.
+
+    Aggregates are handled as a unit (we don't recurse into their source
+    expressions) because their F() refs name reverse relations rather than
+    forward FK chains, so they need a different SQL shape.
+    """
+    from django.db.models import Aggregate  # noqa: PLC0415
+
+    if isinstance(expr, Aggregate):
+        resolved_sql = _resolve_reverse_aggregate(expr, model, qn, row_ref=row_ref)
+        token = f"__pgc_agg_{len(placeholders)}__"
+        placeholders[token] = resolved_sql
+        return rawsql_class(token, ())
+
     if isinstance(expr, f_class):
         name: str = expr.name  # type: ignore[attr-defined]
         if "__" in name:
@@ -536,10 +581,17 @@ def _find_fk_refs(expr: BaseExpression) -> list[str]:
     """Find all FK-traversal F() references in an expression tree.
 
     Returns a list of ``__``-separated field chains (e.g. ``["part__base_price"]``).
+
+    Aggregate subtrees are skipped: their F() refs name reverse relations
+    rather than forward FK chains and are routed through a separate
+    discovery path.
     """
+    from django.db.models import Aggregate  # noqa: PLC0415
     from django.db.models import F as DjangoF  # noqa: PLC0415
 
     refs: list[str] = []
+    if isinstance(expr, Aggregate):
+        return refs
     if isinstance(expr, DjangoF):
         name: str = expr.name
         if "__" in name:
@@ -548,6 +600,31 @@ def _find_fk_refs(expr: BaseExpression) -> list[str]:
         for child in expr.get_source_expressions():
             if child is not None:
                 refs.extend(_find_fk_refs(child))
+    return refs
+
+
+def _find_aggregate_refs(expr: BaseExpression) -> list[tuple[Any, str]]:
+    """Return ``(aggregate, source_name)`` pairs for every Aggregate in the tree.
+
+    Aggregates are not recursed into; their source expressions are validated
+    by :func:`_resolve_reverse_aggregate` at compile time. ``F()`` references
+    are leaves with no source expressions.
+    """
+    from django.db.models import Aggregate  # noqa: PLC0415
+    from django.db.models import F as DjangoF  # noqa: PLC0415
+
+    refs: list[tuple[Any, str]] = []
+    if isinstance(expr, Aggregate):
+        sources = [s for s in expr.get_source_expressions() if s is not None]
+        if len(sources) == 1 and isinstance(sources[0], DjangoF):
+            f_source: Any = sources[0]
+            refs.append((expr, f_source.name))
+        return refs
+    if isinstance(expr, DjangoF):
+        return refs
+    for child in expr.get_source_expressions():
+        if child is not None:
+            refs.extend(_find_aggregate_refs(child))
     return refs
 
 
@@ -704,6 +781,140 @@ class _GeneratedFieldReverse(pgtrigger.Trigger):
         """)
 
 
+class _GeneratedFieldAggregateReverse(pgtrigger.Trigger):
+    """Statement-level AFTER trigger on the child of an aggregated reverse FK.
+
+    Recomputes the parent's aggregate field for every parent whose child
+    rows changed in the firing statement. One instance handles a single
+    operation (INSERT, UPDATE, or DELETE); the multi-operation case is
+    served by registering separate instances.
+
+    Affected parent IDs come from the transition tables: ``new_rows`` for
+    INSERT, ``old_rows`` for DELETE, and the union of both for UPDATE
+    (a row whose FK pivots between parents touches both).
+    """
+
+    when = pgtrigger.After
+    level = pgtrigger.Statement
+
+    _OPERATION_MAP: ClassVar[dict[str, Any]] = {
+        "insert": pgtrigger.Insert,
+        "update": pgtrigger.Update,
+        "delete": pgtrigger.Delete,
+    }
+
+    def __init__(  # noqa: PLR0913
+        self,
+        *,
+        parent_model_label: str,
+        parent_field: str,
+        expression: BaseExpression,
+        chain: tuple[_AggregateHop, ...],
+        operation_name: str,
+        aggregated_columns: tuple[str, ...] = (),
+        **kwargs: Any,  # noqa: ANN401
+    ) -> None:
+        if operation_name not in self._OPERATION_MAP:
+            msg = f"Unsupported operation_name: {operation_name!r}"
+            raise ValueError(msg)
+        if not chain:
+            msg = "chain must contain at least one hop"
+            raise ValueError(msg)
+        self.parent_model_label = parent_model_label
+        self.parent_field = parent_field
+        self.expression = expression
+        self.chain = chain
+        self.operation_name = operation_name
+        self.aggregated_columns = aggregated_columns
+
+        kwargs.setdefault("operation", self._OPERATION_MAP[operation_name])
+        if operation_name == "insert":
+            kwargs.setdefault("referencing", pgtrigger.Referencing(new="new_rows"))
+        elif operation_name == "delete":
+            kwargs.setdefault("referencing", pgtrigger.Referencing(old="old_rows"))
+        else:  # update
+            kwargs.setdefault("referencing", pgtrigger.Referencing(old="old_rows", new="new_rows"))
+        super().__init__(**kwargs)
+
+    @property
+    def leaf_fk_column(self) -> str:
+        """FK column on the leaf table that points up to the next-level table."""
+        return self.chain[-1].fk_column
+
+    def get_func(self, model: Model) -> str:
+        from django.apps import apps  # noqa: PLC0415
+
+        qn = pgtrigger.utils.quote
+
+        parent_model = apps.get_model(self.parent_model_label)
+        parent_table = qn(parent_model._meta.db_table)  # noqa: SLF001
+        parent_pk_col = qn(_col(parent_model._meta.pk))  # noqa: SLF001
+        parent_field_col = qn(_col(parent_model._meta.get_field(self.parent_field)))  # noqa: SLF001
+
+        # Compile the parent's aggregate expression with the parent table
+        # as row_ref so the (possibly nested) child subquery is correlated
+        # to the outer UPDATE on the parent.
+        expr_sql = _compile_expression(self.expression, parent_model, row_ref=parent_table)
+
+        if self.operation_name == "insert":
+            affected = self._build_simple_walk(qn, "new_rows")
+        elif self.operation_name == "delete":
+            affected = self._build_simple_walk(qn, "old_rows")
+        else:  # update
+            child_pk_col = qn(_col(model._meta.pk))  # noqa: SLF001
+            affected = self._build_update_affected_sql(qn, child_pk_col)
+
+        return self.format_sql(f"""
+            UPDATE {parent_table}
+            SET {parent_field_col} = {expr_sql}
+            WHERE {parent_pk_col} IN ({affected});
+            RETURN NULL;
+        """)
+
+    def _build_simple_walk(self, qn: Callable[[str], str], transition_table: str) -> str:
+        """Walk from a transition table's leaf-FK column up to root parent PKs."""
+        leaf_fk = qn(self.leaf_fk_column)
+        seed = f"SELECT DISTINCT {leaf_fk} FROM {transition_table} WHERE {leaf_fk} IS NOT NULL"
+        return _walk_aggregate_chain_to_root(self.chain, qn, seed)
+
+    def _build_update_affected_sql(
+        self,
+        qn: Callable[[str], str],
+        child_pk_col: str,
+    ) -> str:
+        """Affected root parent PKs for an UPDATE on the leaf table.
+
+        - **New side**: rows where any watched column changed contribute
+          their post-update leaf FK, walked up the chain. Catches same-
+          parent edits and the destination of an FK pivot.
+        - **Old side**: rows where the leaf FK pivoted contribute their
+          pre-update leaf FK, walked up the chain. Catches the source
+          parent of a pivot.
+
+        Rows that touch neither the leaf FK nor any aggregated column
+        contribute nothing; the parent UPDATE skips entirely.
+        """
+        leaf_fk = qn(self.leaf_fk_column)
+        watched = [
+            f"new_rows.{leaf_fk} IS DISTINCT FROM old_rows.{leaf_fk}",
+            *[f"new_rows.{qn(col)} IS DISTINCT FROM old_rows.{qn(col)}" for col in self.aggregated_columns],
+        ]
+        any_watched_changed = " OR ".join(watched)
+        fk_pivoted = f"new_rows.{leaf_fk} IS DISTINCT FROM old_rows.{leaf_fk}"
+        join = f"new_rows JOIN old_rows ON new_rows.{child_pk_col} = old_rows.{child_pk_col}"
+
+        new_seed = (
+            f"SELECT DISTINCT new_rows.{leaf_fk} FROM {join} "
+            f"WHERE new_rows.{leaf_fk} IS NOT NULL AND ({any_watched_changed})"
+        )
+        old_seed = (
+            f"SELECT DISTINCT old_rows.{leaf_fk} FROM {join} WHERE old_rows.{leaf_fk} IS NOT NULL AND ({fk_pivoted})"
+        )
+        new_side = _walk_aggregate_chain_to_root(self.chain, qn, new_seed)
+        old_side = _walk_aggregate_chain_to_root(self.chain, qn, old_seed)
+        return f"{new_side} UNION {old_side}"
+
+
 class GeneratedFieldTrigger(pgtrigger.Trigger):
     """Automatically compute and set a field value from an expression.
 
@@ -784,15 +995,20 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
             RETURN NEW;
         """)
 
-    def get_reverse_triggers(self, model: type[Model]) -> list[tuple[type[Model], pgtrigger.Trigger]]:
+    def get_reverse_triggers(self, model: type[Model]) -> list[tuple[type[Model], pgtrigger.Trigger]]:  # noqa: C901
         """Return (related_model, trigger) pairs for reverse triggers.
 
         For each FK chain in the expression, creates reverse triggers on:
         1. The leaf model (when the referenced field changes)
         2. Each intermediate model (when the FK column changes)
+
+        For each Aggregate over a reverse relation, creates statement-level
+        triggers on the child model so child INSERT/UPDATE/DELETE refresh
+        the parent's aggregate.
         """
         fk_refs = _find_fk_refs(self.expression)
-        if not fk_refs:
+        aggregate_refs = _find_aggregate_refs(self.expression)
+        if not fk_refs and not aggregate_refs:
             return []
 
         result: list[tuple[type[Model], pgtrigger.Trigger]] = []
@@ -857,6 +1073,72 @@ class GeneratedFieldTrigger(pgtrigger.Trigger):
                                 trigger_field=fk_col_name,
                                 chain_back=chain_back_all[: i + 1],
                                 name=f"{self.name}_rev_{hops[i].fk_field_name}",
+                            ),
+                        ),
+                    )
+
+        # Aggregate reverse triggers: one set per unique chain. Multiple
+        # aggregates over the same chain (e.g. Sum + Count over the same
+        # leaf relation) share triggers; the UPDATE gating clause covers
+        # the union of their aggregated columns.
+        by_chain: dict[tuple[_AggregateHop, ...], dict[str, Any]] = {}
+        for _aggregate, source_name in aggregate_refs:
+            agg_chain, agg_leaf_model, agg_leaf_field = _parse_aggregate_chain(source_name, model)
+            agg_chain_key = tuple(agg_chain)
+            entry = by_chain.setdefault(
+                agg_chain_key,
+                {"leaf_model": agg_leaf_model, "leaf_fields": []},
+            )
+            entry["leaf_fields"].append(agg_leaf_field)
+
+        for agg_chain_key, group in by_chain.items():
+            agg_leaf_model = group["leaf_model"]
+            aggregated_columns = tuple(
+                sorted({lf for lf in group["leaf_fields"] if lf is not None}),
+            )
+            rel_path = "__".join(hop.rel_name for hop in agg_chain_key)
+
+            # Leaf-table triggers (INSERT, UPDATE with full gating, DELETE).
+            for op_name in ("insert", "update", "delete"):
+                result.append(  # noqa: PERF401
+                    (
+                        agg_leaf_model,
+                        _GeneratedFieldAggregateReverse(
+                            parent_model_label=child_label,
+                            parent_field=self.field,
+                            expression=self.expression,
+                            chain=agg_chain_key,
+                            operation_name=op_name,
+                            aggregated_columns=aggregated_columns,
+                            name=_aggregate_trigger_name(self.name, op_name, rel_path),
+                        ),
+                    ),
+                )
+
+            # Intermediate-table triggers: every non-leaf hop needs UPDATE
+            # (FK pivot to a different ancestor) and DELETE (its descendants
+            # cascade out from under us; the leaf-table DELETE trigger can't
+            # walk back through a row that was just removed). INSERT is
+            # skipped: a freshly-inserted intermediate has no descendants,
+            # so it can't change the aggregate yet.
+            for i in range(len(agg_chain_key) - 1):
+                sub_chain = agg_chain_key[: i + 1]
+                intermediate_model = agg_chain_key[i].related_model
+                sub_rel_path = "__".join(hop.rel_name for hop in sub_chain)
+                for op_name in ("update", "delete"):
+                    result.append(  # noqa: PERF401
+                        (
+                            intermediate_model,
+                            _GeneratedFieldAggregateReverse(
+                                parent_model_label=child_label,
+                                parent_field=self.field,
+                                expression=self.expression,
+                                chain=sub_chain,
+                                operation_name=op_name,
+                                # Aggregated columns live on the *leaf*; an
+                                # intermediate row never carries them.
+                                aggregated_columns=(),
+                                name=_aggregate_trigger_name(self.name, op_name, sub_rel_path),
                             ),
                         ),
                     )
