@@ -63,7 +63,7 @@ extend-exclude = ["examples"]
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["COM812", "D", "E501", "EM", "S608", "TRY003"]
+ignore = ["COM812", "CPY", "D", "E501", "EM", "S608", "TRY003"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [

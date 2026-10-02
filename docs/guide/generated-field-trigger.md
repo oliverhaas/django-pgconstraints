@@ -39,6 +39,7 @@ runs.
 ```python
 from django.db.models import F
 
+
 class LineItem(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.IntegerField()
@@ -259,6 +260,7 @@ overwritten on save:
 ```python
 from django.contrib import admin
 from django_pgconstraints import ComputedFieldsReadOnlyAdminMixin
+
 
 @admin.register(Part)
 class PartAdmin(ComputedFieldsReadOnlyAdminMixin, admin.ModelAdmin):

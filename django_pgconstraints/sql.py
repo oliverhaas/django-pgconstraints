@@ -191,7 +191,7 @@ def _compile_q(q: Q, model: type[Model], qn: Callable[[str], str], *, row_ref: s
     return _compile_q_node(q, model, qn, query, compiler, row_ref)
 
 
-def _compile_q_node(  # noqa: PLR0913
+def _compile_q_node(  # noqa: PLR0913, PLR0917
     q: Q,
     model: type[Model],
     qn: Callable[[str], str],

@@ -58,7 +58,7 @@ foundation = Series.objects.create(title="Foundation", publisher=penguin)
 expanse = Series.objects.create(title="The Expanse", publisher=orbit)
 
 Chapter.objects.create(name="Beginnings", series=dune)
-Chapter.objects.create(name="Beginnings", series=expanse)     # OK — different publisher
+Chapter.objects.create(name="Beginnings", series=expanse)  # OK: different publisher
 Chapter.objects.create(name="Beginnings", series=foundation)  # IntegrityError
 ```
 

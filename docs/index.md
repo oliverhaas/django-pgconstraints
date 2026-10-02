@@ -35,6 +35,7 @@ from django.db import models
 from django.db.models import F, Q
 from django_pgconstraints import CheckConstraintTrigger
 
+
 class OrderLine(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity = models.IntegerField()

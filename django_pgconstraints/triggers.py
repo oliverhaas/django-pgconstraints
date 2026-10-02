@@ -61,7 +61,7 @@ def _compile_expression(expr: BaseExpression, model: type[Model], row_ref: str =
     return sql
 
 
-def _replace_fk_refs(  # noqa: PLR0913
+def _replace_fk_refs(  # noqa: PLR0913, PLR0917
     expr: BaseExpression,
     model: type[Model],
     qn: Any,  # noqa: ANN401

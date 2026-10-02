@@ -66,7 +66,7 @@ def _install_do_update_override(model: type[Model], fields: list[Field]) -> None
     model._pgc_auto_refresh_fields = list(fields)  # type: ignore[attr-defined]  # noqa: SLF001
     original = model._do_update  # noqa: SLF001
 
-    def _do_update(  # noqa: PLR0913
+    def _do_update(  # noqa: PLR0913, PLR0917
         self: Model,
         base_qs: Any,  # noqa: ANN401
         using: str,
