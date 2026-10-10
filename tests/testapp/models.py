@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models import F, Q
+from django.db.models import F, Q, Sum
 from django.db.models.functions import Lower
 
 from django_pgconstraints import (
@@ -166,6 +166,91 @@ class ManualRefreshItem(models.Model):
                 name="manualrefreshitem_total",
             ),
         ]
+
+
+# --- GeneratedFieldTrigger: aggregate over reverse relation ---
+
+
+class Invoice(models.Model):
+    """Parent of InvoiceLine. ``total`` is the SUM of related line amounts."""
+
+    total = models.IntegerField(default=0)
+
+    class Meta:
+        triggers = [
+            GeneratedFieldTrigger(
+                field="total",
+                expression=Sum("lines__amount"),
+                name="invoice_total",
+            ),
+        ]
+
+
+class InvoiceLine(models.Model):
+    invoice = models.ForeignKey(Invoice, related_name="lines", on_delete=models.CASCADE)
+    amount = models.IntegerField()
+    # Non-aggregated column used in tests to verify that UPDATEs touching
+    # only this column don't fire the parent recompute.
+    note = models.CharField(max_length=100, default="")
+
+
+# --- GeneratedFieldTrigger: multi-hop aggregate over reverse relations ---
+
+
+class Customer(models.Model):
+    """Two hops up from CartItem.amount via Cart."""
+
+    name = models.CharField(max_length=100)
+    lifetime_total = models.IntegerField(default=0)
+
+    class Meta:
+        triggers = [
+            GeneratedFieldTrigger(
+                field="lifetime_total",
+                expression=Sum("carts__items__amount"),
+                name="customer_lifetime_total",
+            ),
+        ]
+
+
+class Cart(models.Model):
+    customer = models.ForeignKey(Customer, related_name="carts", on_delete=models.CASCADE)
+
+
+class CartItem(models.Model):
+    cart = models.ForeignKey(Cart, related_name="items", on_delete=models.CASCADE)
+    amount = models.IntegerField()
+    note = models.CharField(max_length=100, default="")
+
+
+# --- GeneratedFieldTrigger: 3-hop aggregate (Tenant → Account → Subscription → Charge) ---
+
+
+class Tenant(models.Model):
+    name = models.CharField(max_length=100)
+    lifetime_revenue = models.IntegerField(default=0)
+
+    class Meta:
+        triggers = [
+            GeneratedFieldTrigger(
+                field="lifetime_revenue",
+                expression=Sum("accounts__subscriptions__charges__amount"),
+                name="tenant_lifetime_revenue",
+            ),
+        ]
+
+
+class Account(models.Model):
+    tenant = models.ForeignKey(Tenant, related_name="accounts", on_delete=models.CASCADE)
+
+
+class Subscription(models.Model):
+    account = models.ForeignKey(Account, related_name="subscriptions", on_delete=models.CASCADE)
+
+
+class Charge(models.Model):
+    subscription = models.ForeignKey(Subscription, related_name="charges", on_delete=models.CASCADE)
+    amount = models.IntegerField()
 
 
 # --- UniqueConstraintTrigger: index=True backing models (issue #10) ---
