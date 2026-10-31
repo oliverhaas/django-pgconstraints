@@ -34,16 +34,16 @@ dev = [
   "mypy==2.4.0",
   "django-stubs==6.1.2",
   "pre-commit==4.7.0",
-  "pytest==9.1.1",
+  "pytest==9.2.0",
   "pytest-cov==7.1.0",
   "pytest-django==4.14.0",
   "pytest-flakefinder==1.1.0",
   "pytest-xdist==3.8.0",
-  "ruff==0.17.1",
+  "ruff==0.17.3",
   "psycopg[c]==3.3.6",
   "testcontainers[postgres]==4.15.0",
 ]
-docs = ["mkdocs==1.6.1", "mkdocs-material==9.7.7", "mike==2.2.0"]
+docs = ["mkdocs==1.6.1", "mkdocs-material==9.8.0", "mike==2.2.0"]
 
 [build-system]
 requires = ["hatchling"]
