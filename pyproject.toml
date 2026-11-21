@@ -39,8 +39,8 @@ dev = [
   "pytest-django==4.14.0",
   "pytest-flakefinder==1.1.0",
   "pytest-xdist==3.8.0",
-  "ruff==0.17.4",
-  "psycopg[c]==3.3.8",
+  "ruff==0.17.5",
+  "psycopg[c]==3.3.9",
   "testcontainers[postgres]==4.15.0",
 ]
 docs = ["mkdocs==1.6.1", "mkdocs-material==9.8.1", "mike==2.2.0"]
